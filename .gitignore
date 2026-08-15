@@ -8,6 +8,12 @@ target/
 .env.*
 !.env.example
 
+# SQLite 数据（sidecar 运行产物，不入库）
+apps/plugin-host/data/
+*.db
+*.db-wal
+*.db-shm
+
 # Tauri build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/

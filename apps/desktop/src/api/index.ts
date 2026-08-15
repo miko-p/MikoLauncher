@@ -47,3 +47,15 @@ export async function launchInstance(payload: {
   )
   return instanceLaunchDataSchema.parse(data)
 }
+
+/** version_manifest —— 真实拉取 Mojang 版本清单（Rust 内核）。 */
+export async function fetchVersions(): Promise<
+  { id: string; type: string; url: string; releaseTime: string; javaMajor?: number | null }[]
+> {
+  const data = await call<{ versions: unknown[] }>('version_manifest')
+  // 轻量校验：至少要有 versions 数组；条目字段由调用方按需收窄
+  if (!data || !Array.isArray(data.versions)) {
+    throw new Error('version_manifest 返回异常')
+  }
+  return data.versions as { id: string; type: string; url: string; releaseTime: string }[]
+}

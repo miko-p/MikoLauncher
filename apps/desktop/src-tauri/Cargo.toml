@@ -17,9 +17,12 @@ tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# 真实版本清单拉取（Mojang API）
+reqwest = { version = "0.13", features = ["json", "blocking"] }
+
 # MC 启动内核：LightyLauncherLib 全家桶（MIT）
-# M1 骨架先引入 lighty-version（版本清单解析）+ lighty-launch（启动结构骨架）
-lighty-launch = "26.5.12"
+# M3 起：真实版本清单拉取 + LaunchConfig 启动结构
+lighty-launch = { version = "26.5.12", features = ["events"] }
 lighty-version = "26.5.12"
 
 [features]

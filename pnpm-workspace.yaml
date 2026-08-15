@@ -3,7 +3,8 @@ packages:
   - "apps/*"
   - "plugins/*"
 
-# pnpm 11：逐包控制 postinstall 构建脚本（esbuild 供 tsx/vite 用，vue-demi 补丁）
+# pnpm 11：逐包控制 postinstall 构建脚本（esbuild 供 tsx/vite 用，vue-demi 补丁，better-sqlite3 原生编译）
 allowBuilds:
   esbuild: true
   vue-demi: true
+  better-sqlite3: true

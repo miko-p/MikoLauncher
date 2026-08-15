@@ -78,6 +78,37 @@ fn instance_launch(state: tauri::State<'_, AppState>, payload: Value) -> Result<
     call_sidecar(&state, "instance.launch", payload)
 }
 
+/// 模拟下载进度 —— 骨架用：向前端推送几个 `download:progress` 事件，
+/// 供前端订阅链路（DownloadProgressSchema）验证。M4 起替换为真实下载进度。
+#[tauri::command]
+fn emit_download_progress(app: tauri::AppHandle) -> Result<(), String> {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let seq = [
+            (10u64, 100u64, "client.jar"),
+            (40u64, 100u64, "client.jar"),
+            (70u64, 100u64, "client.jar"),
+            (100u64, 100u64, "client.jar"),
+        ];
+        for (downloaded, total, target) in seq {
+            handle
+                .emit(
+                    "download:progress",
+                    json!({
+                        "target": target,
+                        "downloaded": downloaded,
+                        "total": total,
+                        "ratio": downloaded as f64 / total as f64,
+                        "phase": if downloaded == total { "done" } else { "downloading" },
+                    }),
+                )
+                .ok();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+    });
+    Ok(())
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello from Rust core, {name}!")
@@ -117,6 +148,7 @@ pub fn run() {
             instance_list,
             instance_create,
             instance_launch,
+            emit_download_progress,
             greet
         ])
         .run(tauri::generate_context!())
@@ -126,6 +158,16 @@ pub fn run() {
 /// Rust 内核自检入口（`--self-check`，不进 GUI）。
 /// 验证：Rust 拉起 Node sidecar，走读(instance.list)+写(instance.create)+读 三阶往返。
 pub fn self_check() -> String {
+    // 0) 真实版本清单拉取
+    let manifest_report = match crate::core::launch::fetch_version_manifest() {
+        Ok(v) => format!(
+            "清单: {} 个版本，最新 release = {}",
+            v.len(),
+            v.first().map(|x| x.id.as_str()).unwrap_or("?"),
+        ),
+        Err(e) => format!("清单: 拉取失败 {e}"),
+    };
+
     let (host_dir, tsx_bin, entry) = resolve_plugin_host();
     let sidecar = match crate::core::sidecar::SyncSidecar::start(&host_dir, &tsx_bin, &[&entry]) {
         Ok(s) => s,
@@ -137,7 +179,6 @@ pub fn self_check() -> String {
         Ok(d) => d,
         Err(e) => return format!("[self-check] instance.list 失败: {e}"),
     };
-
     // 2) 写：create
     let created = match sidecar.call(
         "instance.create",
@@ -154,6 +195,6 @@ pub fn self_check() -> String {
     };
 
     format!(
-        "[self-check] ①list={list1}\n[self-check] ②create→{created}\n[self-check] ③list→{list2}\n[self-check] 读/写/回读全链路通过"
+        "[self-check] ⓪{manifest_report}\n[self-check] ①list={list1}\n[self-check] ②create→{created}\n[self-check] ③list→{list2}\n[self-check] 读/写/回读全链路通过"
     )
 }

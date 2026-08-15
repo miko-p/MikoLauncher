@@ -14,7 +14,8 @@ import { Service } from 'cordis'
 import { getMethodSchema, makeErr, makeOk } from '@mc-launcher/shared'
 import type { RpcRequest } from '../bridge/json-rpc.js'
 
-type Handler = (params: unknown) => unknown | Promise<unknown>
+// 处理器参数用 any：Rust 转发的请求在 registry 层是未知结构，具体类型由各插件收窄。
+type Handler = (params: any) => unknown | Promise<unknown>
 
 export class RustBridgeService extends Service {
   private handlers = new Map<string, Handler[]>()
@@ -39,13 +40,24 @@ export class RustBridgeService extends Service {
 
   /** 处理一条传入请求（已过 apiVersion 校验），返回响应对象。 */
   async handle(req: RpcRequest) {
-    const schema = getMethodSchema(req.method)
-    if (!schema) return makeErr(req.id, { code: 'METHOD_NOT_FOUND', message: `unknown method: ${req.method}` })
+    const schema = getMethodSchema(req.method) as
+      | { params: { safeParse(v: unknown): { success: boolean; data?: any; error?: any } } }
+      | undefined
+    if (!schema) {
+      return makeErr(req.id, {
+        code: 'METHOD_NOT_FOUND',
+        message: `unknown method: ${req.method}`,
+      })
+    }
 
     // 1) 校验 params
     const parsed = schema.params.safeParse(req.params ?? {})
     if (!parsed.success) {
-      return makeErr(req.id, { code: 'INVALID_PARAMS', message: 'invalid params', data: parsed.error.flatten() })
+      return makeErr(req.id, {
+        code: 'INVALID_PARAMS',
+        message: 'invalid params',
+        data: parsed.error?.flatten(),
+      })
     }
 
     // 2) 派发到已注册处理器

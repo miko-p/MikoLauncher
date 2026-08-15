@@ -11,9 +11,12 @@
   },
   "dependencies": {
     "@mc-launcher/shared": "workspace:*",
+    "better-sqlite3": "^13.0.3",
     "cordis": "4.0.0-rc.8"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.2",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4"
   }

@@ -1,39 +1,69 @@
 /**
  * InstanceService —— 实例管理（OOP 领域服务，注入 Cordis）。
  *
- * 骨架阶段：纯内存实现 + in-memory 存储，供 IPC 全链路跑通。
- * M2 起替换为 SQLite + Drizzle 持久化（蓝图「五、数据」）。
- *
- * 以 Cordis Service 形式挂载，任何插件可 `inject: ['instanceManager']`。
+ * M3 起用 SQLite 持久化（better-sqlite3，见 db.ts），替代 M2 的纯内存 Map：
+ *   - 启动时从库加载实例
+ *   - list/get 直接读库
+ *   - create/remove 写库
+ *   - 重启侧车后数据仍在
  */
 
 import { Service } from 'cordis'
-import {
-  InstanceSchema,
-  type InstanceCreateParams,
-} from '@mc-launcher/shared'
+import { InstanceSchema, type Instance, type InstanceCreateParams } from '@mc-launcher/shared'
 import { randomUUID } from 'node:crypto'
+import { getDb, type Db } from './db.js'
+
+interface InstanceRow {
+  id: string
+  name: string
+  version_id: string
+  mod_loader: string
+  dir: string
+  mods: string
+  account_id: string | null
+  created_at: string
+}
+
+function rowToInstance(r: InstanceRow): Instance {
+  return {
+    id: r.id,
+    name: r.name,
+    versionId: r.version_id,
+    modLoader: r.mod_loader as Instance['modLoader'],
+    dir: r.dir,
+    mods: JSON.parse(r.mods),
+    accountId: r.account_id ?? undefined,
+    createdAt: r.created_at,
+  }
+}
 
 export class InstanceManagerService extends Service {
-  private instances = new Map<string, Instance>()
+  private db: Db
 
   constructor(ctx: any) {
     super(ctx, 'instanceManager')
+    this.db = getDb()
+    // DB 连接是副作用：卸载服务时关闭（Cordis 时间可组合）
+    ctx.effect(() => () => this.db.close())
   }
 
-  /** instance.list */
+  /** 全部实例（按创建时间倒序）。 */
   list() {
-    return { instances: [...this.instances.values()] }
+    const rows = this.db.raw
+      .prepare('SELECT * FROM instances ORDER BY created_at DESC')
+      .all() as InstanceRow[]
+    return { instances: rows.map(rowToInstance) }
   }
 
-  /** instance.get */
+  /** 单个实例；不存在返回 instance:null。 */
   get(id: string) {
-    const instance = this.instances.get(id)
-    if (!instance) return { instance: null }
-    return { instance }
+    const row = this.db.raw.prepare('SELECT * FROM instances WHERE id = ?').get(id) as
+      | InstanceRow
+      | undefined
+    return { instance: row ? rowToInstance(row) : null }
   }
 
-  /** instance.create — 骨架：内存持久化，返回创建后的实例 */
+  /** 创建实例并落库。 */
   create(params: InstanceCreateParams) {
     const id = randomUUID()
     const instance: Instance = {
@@ -41,20 +71,33 @@ export class InstanceManagerService extends Service {
       name: params.name,
       versionId: params.versionId,
       modLoader: params.modLoader,
-      // 骨架默认目录：<data>/instances/<id>
       dir: `instances/${id}`,
       mods: [],
       accountId: params.accountId,
       createdAt: new Date().toISOString(),
     }
-    // 用 shared schema 校验产物（自检）
-    const parsed = InstanceSchema.parse(instance)
-    this.instances.set(parsed.id, parsed)
-    return { instance: parsed }
+    const validated = InstanceSchema.parse(instance) // 用 shared schema 自检
+    this.db.raw
+      .prepare(
+        `INSERT INTO instances (id, name, version_id, mod_loader, dir, mods, account_id, created_at)
+         VALUES (@id, @name, @versionId, @modLoader, @dir, @mods, @accountId, @createdAt)`,
+      )
+      .run({
+        id: validated.id,
+        name: validated.name,
+        versionId: validated.versionId,
+        modLoader: validated.modLoader,
+        dir: validated.dir,
+        mods: JSON.stringify(validated.mods),
+        accountId: validated.accountId ?? null,
+        createdAt: validated.createdAt,
+      })
+    return { instance: validated }
   }
 
-  /** instance.remove */
+  /** 删除实例；返回是否删除成功。 */
   remove(id: string) {
-    return { removed: this.instances.delete(id) }
+    const info = this.db.raw.prepare('DELETE FROM instances WHERE id = ?').run(id)
+    return { removed: info.changes > 0 }
   }
 }
