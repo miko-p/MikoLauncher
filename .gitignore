@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+target/
+*.local
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Tauri build artifacts
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# pnpm
+.pnpm-store/

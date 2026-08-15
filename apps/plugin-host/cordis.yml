@@ -1,0 +1,12 @@
+# cordis.yml —— 插件树声明（蓝图「八」骨架草案）
+# 内置功能插件先于用户插件加载，作为基础服务。
+# Phase 0：用户插件不写死在这，由 loader 启动时扫描 plugins/ 目录 + hash 校验。
+
+plugins:
+  # 内置服务与基础功能（core 服务层）
+  include: core.yml
+  # 用户插件目录（Phase 0 动态扫描，此处可覆盖/启用某插件）
+  # group:
+  #   users:
+  #     enabled-theme: {}
+  #     custom-layout: {}

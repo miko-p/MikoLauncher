@@ -1,0 +1,3 @@
+# 用户插件装载目录（Phase 0）
+# 每个插件一个含 manifest.json 的子目录，启动时由 loader 扫描 + hash 校验。
+# 骨架阶段留空，M3 接入。

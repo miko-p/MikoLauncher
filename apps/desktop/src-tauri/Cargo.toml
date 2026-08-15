@@ -1,0 +1,33 @@
+[package]
+name = "mc-launcher"
+version = "0.1.0"
+description = "MC Launcher Rust 核心 — LightyLauncherLib 封装 + Tauri 后端 + Node sidecar 宿主"
+edition = "2021"
+
+[lib]
+name = "mc_launcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# MC 启动内核：LightyLauncherLib 全家桶（MIT）
+# M1 骨架先引入 lighty-version（版本清单解析）+ lighty-launch（启动结构骨架）
+lighty-launch = "26.5.12"
+lighty-version = "26.5.12"
+
+[features]
+# M1 骨架无需额外 feature。完整 loaders/auth/java 在 M2 按需开启（default 缺省）
+default = []
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

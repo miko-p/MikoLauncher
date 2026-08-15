@@ -1,0 +1,2 @@
+# 用户插件装载目录（Phase 0，蓝图「六」根级 plugins/）
+# 每个插件一个含 manifest.json 的子目录，M3 由 Cordis loader 扫描 + hash 校验。

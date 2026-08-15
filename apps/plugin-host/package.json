@@ -1,0 +1,20 @@
+{
+  "name": "@mc-launcher/plugin-host",
+  "version": "0.1.0",
+  "description": "Node sidecar (Cordis 宿主) — 功能插件注册 / ctx.effect 回滚 / 依赖注入 / HMR",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mc-launcher/shared": "workspace:*",
+    "cordis": "4.0.0-rc.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}

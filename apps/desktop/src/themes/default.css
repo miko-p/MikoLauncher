@@ -1,0 +1,17 @@
+/**
+ * 内置主题 —— 通过 CSS 变量注入（蓝图「十、主题插件」）
+ * 主题插件只需覆盖这些变量即可换肤；工具类变量供 Vue 组件消费。
+ *
+ * 本文件由 src/main.ts 引入，作为默认主题。插件主题用 <link> 覆盖同名变量。
+ */
+
+:root {
+  --bg: #12151b;
+  --bg-elevated: #1b1f27;
+  --text: #e4e7ec;
+  --text-dim: #8b93a1;
+  --border: #2a2f3a;
+  --accent: #39c5bb;
+  --danger: #e5484d;
+  --radius: 8px;
+}

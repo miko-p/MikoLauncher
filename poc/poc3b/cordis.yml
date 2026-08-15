@@ -1,0 +1,6 @@
+- id: infra
+  name: ./infra.mjs
+- id: theme-dracula
+  name: ./themes/dracula.mjs
+- id: layout-classic
+  name: ./addons/layout-classic.mjs

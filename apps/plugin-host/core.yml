@@ -1,0 +1,9 @@
+# core.yml —— 内置服务 / 基础功能插件树（被 cordis.yml include）
+# M1 骨架：服务在代码里直接 mount（见 src/main.ts），
+# 这里先声明意图，loader 集成时把树映射到代码。
+plugins:
+  # 服务层
+  # instance-manager: {}
+  # rust-bridge: {}
+  # 功能插件
+  # builtin-demo: {}
