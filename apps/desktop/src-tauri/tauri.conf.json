@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.mclauncher.app",
   "build": {
-    "beforeDevCommand": "pnpm --dir apps/desktop dev",
+    "beforeDevCommand": "pnpm --filter @mc-launcher/desktop dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --dir apps/desktop build",
+    "beforeBuildCommand": "pnpm --filter @mc-launcher/desktop build",
     "frontendDist": "../desktop/dist"
   },
   "app": {

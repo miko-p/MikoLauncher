@@ -21,3 +21,11 @@ export const ServiceName = {
 } as const
 
 export type ServiceName = (typeof ServiceName)[keyof typeof ServiceName]
+
+/**
+ * sidecar 日志统一走 stderr —— stdout 是 JSON-RPC 通道，绝不能混入业务日志。
+ * 任何 .ts 里的 `console.log` 都会污染 stdout、破坏 Rust 端按 JSON 行解析。
+ */
+export const log = (...args: unknown[]) => {
+  process.stderr.write(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ') + '\n')
+}

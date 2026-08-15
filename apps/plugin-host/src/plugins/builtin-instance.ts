@@ -9,7 +9,7 @@
  */
 
 import type { Context } from 'cordis'
-import { ServiceName } from '../context.js'
+import { ServiceName, log } from '../context.js'
 import type { RustBridgeService } from '../bridge/rust-bridge.js'
 
 export interface Config {}
@@ -36,10 +36,10 @@ export function apply(ctx: Context) {
       }),
     )
 
-    console.log(`[builtin-instance] 注册 ${offs.length} 个 instance.* handler`)
+    log(`[builtin-instance] 注册 ${offs.length} 个 instance.* handler`)
     return () => {
       for (const off of offs) off()
-      console.log('[builtin-instance] 卸载：instance.* handler 已全部反注册（effect 回滚）')
+      log('[builtin-instance] 卸载：instance.* handler 已全部反注册（effect 回滚）')
     }
   })
 }

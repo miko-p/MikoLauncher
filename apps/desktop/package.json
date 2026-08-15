@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mc-launcher/shared": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
     "pinia": "^2.2.2",
     "vue": "^3.4.38",
     "vue-router": "^4.4.3"
