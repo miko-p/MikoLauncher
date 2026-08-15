@@ -2182,6 +2182,7 @@ checksum = "7e660d51b6669bb6ce7c64d5e1310f0a39f02f0d1957072c154502ac14fadde1"
 dependencies = [
  "base64 0.22.1",
  "lighty-core",
+ "lighty-event",
  "reqwest",
  "secrecy",
  "serde",
@@ -2394,7 +2395,13 @@ dependencies = [
 name = "mc-launcher"
 version = "0.1.0"
 dependencies = [
+ "lighty-auth",
+ "lighty-core",
+ "lighty-event",
+ "lighty-java",
  "lighty-launch",
+ "lighty-loaders",
+ "lighty-modsloader",
  "lighty-version",
  "reqwest",
  "serde",
@@ -2402,6 +2409,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",
+ "tokio",
 ]
 
 [[package]]

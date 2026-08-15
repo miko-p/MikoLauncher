@@ -257,19 +257,26 @@ plugins:
 6. 下载页 VM：连接 Rust 的下载进度事件，展示 Modrinth 源。
 7. 内置主题切换 MVP。
 
-### M3 — 插件化 MVP
+### M3 — 插件化 MVP（规划）
 8. Phase 0 插件装载（plugins/ + hash 校验）。
 9. 主题插件 + 布局插件 + 第一个内置功能插件走通 Cordis。
 
+> 实际执行有演进偏移：M2/M3/M4 已按「联通→真实能力→真实启动」落地，插件化 MVP（上述 8/9）整体顺延。
+
+### M4 — 真实启动 ✅ 已完成（见 `docs/M4-status.md`）
+- `instance.launch` 本地真实启动：lighty-launch 完整 pipeline（VersionBuilder + OfflineAuth → metadata → JRE 下载 → 8 桶 install → spawn JVM），`instance_launch` command 不再转发 sidecar。
+- 版本清单补全 `java_major`（逐条拉版本 json，前 20 条）。
+- 下载/安装真实进度桥接为 `download:progress`（`tokio::select!` 驱动 EventBus），替换 M3 模拟。
+
 ---
 
-## 十三、下一步（M1 骨架搭建）
+## 十三、下一步（M5）
 
-M0 POC 三项验证已完成并全部通过。据此进入 **M1 — 骨架搭建**，交付物：
-1. pnpm monorepo 初始化：`apps/desktop`(Tauri+Vue3)、`apps/plugin-host`(Node/Cordis 宿主)、`packages/shared`(Zod 契约)。
-2. `packages/shared` 首批 Zod IPC schema（`instance.launch` / `instance.list` / 下载进度事件）。
-3. Rust 侧接入 LightyLauncherLib 的 command 骨架。
-4. 复用 M0 已验证的 Cordis API（服务注册/`inject`/`ctx.effect`/HMR 的 `entry.update`）搭 plugin-host 骨架。
+M4 真实启动已完成（见 `docs/M4-status.md`）。M5 起点（优先级建议）：
+1. **微软认证**：接入 lighty-auth 的 Microsoft 流程替换 `OfflineAuth`，实例表补 account/user 绑定。
+2. **具体 loader 版本解析**：`loader_version` 目前 vanilla 空串 / 其它 `"latest"` 占位，改为从元数据或用户选择解析精确版本。
+3. **前端下载页接真实进度**：`instance_launch` 触发时订阅真实 `download:progress` 渲染（链路已验证，Vue 绑定待接）。
+4. **插件化 MVP**：架构文档原规划的 Phase 0 插件装载 + 主题/布局/功能插件走 Cordis（已顺延）。
 
 ---
 
