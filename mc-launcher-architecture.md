@@ -268,14 +268,18 @@ plugins:
 - 版本清单补全 `java_major`（逐条拉版本 json，前 20 条）。
 - 下载/安装真实进度桥接为 `download:progress`（`tokio::select!` 驱动 EventBus），替换 M3 模拟。
 
+### M5 — 前端接真实进度 + 具体 loader 版本 ✅ 已完成（见 `docs/M5-status.md`）
+- `resolve_loader_version(loader, mc)`：fabric/quilt(meta JSON)、forge(maven.minecraftforge.net)、neoforge(maven.neoforged.net) 官方解析精确版本，替代 M4 的 `"latest"` 占位（该占位 lighty 无法拼出合法 URL）。
+- 前端实例页启动时订阅 `download:progress` 实时渲染下载/安装进度条；版本清单展示 `Java xx` 要求。
+
 ---
 
-## 十三、下一步（M5）
+## 十三、下一步（M6）
 
-M4 真实启动已完成（见 `docs/M4-status.md`）。M5 起点（优先级建议）：
+M5 已完成（见 `docs/M5-status.md`）。M6 起点（优先级建议）：
 1. **微软认证**：接入 lighty-auth 的 Microsoft 流程替换 `OfflineAuth`，实例表补 account/user 绑定。
-2. **具体 loader 版本解析**：`loader_version` 目前 vanilla 空串 / 其它 `"latest"` 占位，改为从元数据或用户选择解析精确版本。
-3. **前端下载页接真实进度**：`instance_launch` 触发时订阅真实 `download:progress` 渲染（链路已验证，Vue 绑定待接）。
+2. **NeoForge 版本匹配更精确**：当前按 MC minor 前缀匹配，对跨 minor 特例可能取偏差版本，改用官方版本列表 API。
+3. **版本/loader 选择 UI 增强**：下载页版本分组筛选、启动前可选 loader 版本（当前自动取最新）。
 4. **插件化 MVP**：架构文档原规划的 Phase 0 插件装载 + 主题/布局/功能插件走 Cordis（已顺延）。
 
 ---

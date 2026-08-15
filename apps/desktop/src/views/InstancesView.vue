@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { listen } from '@tauri-apps/api/event'
 import { useInstanceStore } from '../stores/instances'
+import type { DownloadProgress } from '@mc-launcher/shared'
 
 const store = useInstanceStore()
 
 const showCreate = ref(false)
 const form = reactive({ name: '', versionId: '1.21.4', modLoader: 'fabric' as const })
+
+/** 正在启动的实例 id + 其实时下载/安装进度。 */
+const launchingId = ref<string | null>(null)
+const activeProgress = ref<DownloadProgress | null>(null)
+let unlisten: (() => void) | undefined
 
 async function create() {
   if (!form.name.trim()) return
@@ -16,7 +23,31 @@ async function create() {
   }
 }
 
-onMounted(() => store.fetchInstances())
+/** 启动实例并实时渲染 lighty 的下载/安装进度（Rust 经 download:progress 推送）。 */
+async function start(instId: string) {
+  launchingId.value = instId
+  activeProgress.value = null
+  await store.launch(instId)
+  // M4 起 lighty `run()` 在游戏运行期间不返回，此处的 await 会一直 pending
+  //（启动动作在后台线程执行），直到游戏退出才 resolve —— 不阻塞 UI。
+  launchingId.value = null
+}
+
+async function setupProgress() {
+  try {
+    unlisten = await listen<DownloadProgress>('download:progress', (evt) => {
+      activeProgress.value = evt.payload
+    })
+  } catch {
+    // 非 Tauri（纯浏览器 vite dev）静默跳过
+  }
+}
+
+onMounted(() => {
+  setupProgress()
+  store.fetchInstances()
+})
+onUnmounted(() => unlisten?.())
 </script>
 
 <template>
@@ -52,10 +83,25 @@ onMounted(() => store.fetchInstances())
           <strong>{{ inst.name }}</strong>
           <span class="muted"> {{ inst.versionId }} · {{ inst.modLoader }}</span>
         </div>
-        <button @click="store.launch(inst.id)" class="launch">启动</button>
+        <button @click="start(inst.id)" class="launch" :disabled="launchingId === inst.id">
+          {{ launchingId === inst.id ? '启动中…' : '启动' }}
+        </button>
       </li>
     </ul>
     <p v-else-if="!store.loading && !store.error" class="muted">还没有实例。点「+ 新建实例」创建一个。</p>
+
+    <!-- 正在启动的实例实时下载/安装进度（lighty 真实进度） -->
+    <div v-if="activeProgress" class="launch-progress">
+      <p class="muted">
+        安装中：{{ activeProgress.target }}
+        <span class="tag" :class="activeProgress.phase">{{ activeProgress.phase }}</span>
+      </p>
+      <progress :value="activeProgress.downloaded" :max="activeProgress.total || 1"></progress>
+      <p class="muted" v-if="activeProgress.total">
+        {{ activeProgress.downloaded }} / {{ activeProgress.total }}
+        ({{ (activeProgress.ratio * 100).toFixed(1) }}%)
+      </p>
+    </div>
   </section>
 </template>
 
@@ -76,4 +122,10 @@ onMounted(() => store.fetchInstances())
   padding: 0.6rem 0.8rem; border: 1px solid var(--border, #333); border-radius: var(--radius, 8px); margin-bottom: 0.5rem; }
 .launch { padding: 0.25rem 0.9rem; border-radius: var(--radius, 8px);
   background: var(--accent, #39c5bb); color: #111; border: none; cursor: pointer; }
+.launch:disabled { opacity: 0.5; cursor: default; }
+.launch-progress { margin-top: 1rem; padding: 0.8rem; border: 1px solid var(--border, #333);
+  border-radius: var(--radius, 8px); }
+.launch-progress progress { width: 100%; }
+.launch-progress .tag.done { background: rgba(57, 197, 187, 0.15); color: #39c5bb; }
+.launch-progress .tag.error { background: rgba(229, 72, 77, 0.15); color: #e5484d; }
 </style>

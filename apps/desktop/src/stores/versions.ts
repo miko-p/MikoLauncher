@@ -12,6 +12,8 @@ export interface VersionInfo {
   type: 'release' | 'snapshot' | string
   url: string
   releaseTime: string
+  /** 该版本要求的 Java 主版本（如 17/21），M5 起由 Rust 解析填充 */
+  javaMajor?: number | null
 }
 
 export const useVersionStore = defineStore('versions', () => {

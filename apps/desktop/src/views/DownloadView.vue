@@ -59,6 +59,7 @@ onUnmounted(() => unlisten?.())
       <div v-for="v in store.versions.slice(0, 40)" :key="v.id" class="row-item">
         <span class="ver"><strong>{{ v.id }}</strong></span>
         <span class="tag" :class="v.type">{{ typeLabel(v.type) }}</span>
+        <span class="tag java" v-if="v.javaMajor">Java {{ v.javaMajor }}</span>
         <span class="muted">{{ v.releaseTime }}</span>
       </div>
     </div>
@@ -88,6 +89,7 @@ onUnmounted(() => unlisten?.())
 .tag { padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
 .tag.release { background: rgba(57, 197, 187, 0.15); color: #39c5bb; }
 .tag.snapshot { background: rgba(229, 72, 77, 0.15); color: #e5484d; }
+.tag.java { background: rgba(74, 144, 226, 0.15); color: #4a90e2; }
 .ver { min-width: 6rem; }
 .progress { margin-top: 1rem; padding: 0.8rem; border: 1px solid var(--border, #333);
   border-radius: var(--radius, 8px); }

@@ -280,6 +280,41 @@ pub fn self_check() -> String {
         loader_map.join(", ")
     ));
 
+    // ⑤ 具体 loader 版本解析（M5）：真实从官方 meta/maven 解析各 loader 的精确版本
+    {
+        use lighty_loaders::types::Loader;
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .expect("tokio runtime for loader version");
+        let mc = "1.21.4";
+        let cases = [
+            ("vanilla", Loader::Vanilla),
+            ("fabric", Loader::Fabric),
+            ("quilt", Loader::Quilt),
+            ("neoforge", Loader::NeoForge),
+            ("forge", Loader::Forge),
+        ];
+        let mut parts = Vec::new();
+        for (label, loader) in cases {
+            match rt.block_on(crate::core::launch::resolve_loader_version(&loader, mc)) {
+                Ok(v) => {
+                    if v.is_empty() {
+                        parts.push(format!("{label}=∅"));
+                    } else {
+                        parts.push(format!("{label}={v}"));
+                    }
+                }
+                Err(e) => parts.push(format!("{label}✗({e})")),
+            }
+        }
+        report.push_str(&format!(
+            "[self-check] ⑤Loader版本(1.21.4): [{}]\n",
+            parts.join(", ")
+        ));
+    }
+
     let (host_dir, tsx_bin, entry) = resolve_plugin_host();
     let sidecar = match crate::core::sidecar::SyncSidecar::start(&host_dir, &tsx_bin, &[&entry]) {
         Ok(s) => s,

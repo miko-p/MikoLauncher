@@ -214,6 +214,118 @@ fn ensure_app_state() -> Result<(), String> {
     Ok(())
 }
 
+/// Fabric/Quilt meta「版本列表」条目（`.loader.version` 是要的版本）。
+#[derive(Debug, Deserialize)]
+struct LoaderListEntry {
+    loader: LoaderEntry,
+}
+#[derive(Debug, Deserialize)]
+struct LoaderEntry {
+    version: String,
+}
+
+/// maven-metadata.xml 的 versions 提取（轻量、无 XML 依赖）。
+/// 结构固定：`<metadata>...<versions><version>A</version>...<version>N</version></versions>...`.
+fn extract_maven_versions(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for cap in xml.split("<version>").skip(1) {
+        if let Some(end) = cap.find("</version>") {
+            out.push(cap[..end].to_string());
+        }
+    }
+    out
+}
+
+/// 具体 loader 版本解析（M5）。
+///
+/// lighty 的 `VersionBuilder` 需要**精确** loader 版本才能拼 meta/installer URL；
+/// vanilla 空串；fabric/quilt 用官方 meta JSON 精确取该 MC 的第一个版本；
+/// neoforge/forge 用 maven-metadata 按 MC 匹配（forge 版本自带 `{mc}-` 前缀，精确最优先）。
+pub async fn resolve_loader_version(loader: &Loader, mc_version: &str) -> Result<String, String> {
+    let client = &lighty_core::hosts::HTTP_CLIENT;
+    let timeout = std::time::Duration::from_secs(15);
+
+    match loader {
+        Loader::Vanilla => Ok(String::new()),
+        Loader::Fabric => {
+            let url = format!("https://meta.fabricmc.net/v2/versions/loader/{mc_version}");
+            let list: Vec<LoaderListEntry> = client
+                .get(&url)
+                .timeout(timeout)
+                .send()
+                .await
+                .map_err(|e| format!("Fabric 版本解析失败: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Fabric 版本 HTTP 错误: {e}"))?
+                .json()
+                .await
+                .map_err(|e| format!("Fabric 版本 JSON 解析失败: {e}"))?;
+            list.first()
+                .map(|e| e.loader.version.clone())
+                .ok_or_else(|| format!("Fabric 未提供 {mc_version} 的 loader 版本"))
+        }
+        Loader::Quilt => {
+            let url = format!("https://meta.quiltmc.org/v3/versions/loader/{mc_version}");
+            let list: Vec<LoaderListEntry> = client
+                .get(&url)
+                .timeout(timeout)
+                .send()
+                .await
+                .map_err(|e| format!("Quilt 版本解析失败: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Quilt 版本 HTTP 错误: {e}"))?
+                .json()
+                .await
+                .map_err(|e| format!("Quilt 版本 JSON 解析失败: {e}"))?;
+            list.first()
+                .map(|e| e.loader.version.clone())
+                .ok_or_else(|| format!("Quilt 未提供 {mc_version} 的 loader 版本"))
+        }
+        Loader::Forge => {
+            // Forge 版本形如 `{mc}-{loader}`（如 1.21.4-54.1.18），maven-metadata 按 MC 前缀精确匹配
+            let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+            let xml = client
+                .get(url)
+                .timeout(timeout)
+                .send()
+                .await
+                .map_err(|e| format!("Forge 元数据失败: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Forge 元数据 HTTP: {e}"))?
+                .text()
+                .await
+                .map_err(|e| format!("Forge 元数据读取失败: {e}"))?;
+            let mut versions = extract_maven_versions(&xml);
+            versions.retain(|v| v.starts_with(mc_version));
+            // maven-metadata 的 version 列表本身按时间递增；取最后一个即最新（不做字符串排序，避免 54.0.9 vs 54.0.10 出错）
+            versions.last().cloned().ok_or_else(|| format!("Forge 未提供 {mc_version} 的版本"))
+        }
+        Loader::NeoForge => {
+            // NeoForge ≥1.20.2 版本号形如 `{mc_minor}.{patch}`（21.8.x ↔ 1.21.x）；maven-metadata 取最后匹配的
+            let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+            let xml = client
+                .get(url)
+                .timeout(timeout)
+                .send()
+                .await
+                .map_err(|e| format!("NeoForge 元数据失败: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("NeoForge 元数据 HTTP: {e}"))?
+                .text()
+                .await
+                .map_err(|e| format!("NeoForge 元数据读取失败: {e}"))?;
+            // mc 如 "1.21.4" → 前缀 "21."（NeoForge 版本对齐 MC minor）
+            let minor = mc_version.split('.').nth(1).unwrap_or("");
+            let prefix = format!("{minor}.");
+            let mut versions = extract_maven_versions(&xml);
+            versions.retain(|v| v.starts_with(&prefix));
+            // 取按时间递增列表的最后一个（最新）；不做字符串排序
+            versions.last().cloned().ok_or_else(|| format!("NeoForge 未提供 {mc_version} 的版本"))
+        }
+        other => Err(format!("不支持的 loader 版本解析: {other:?}")),
+    }
+}
+
 /// 真实启动（async）：
 ///   1. Loader 映射 + 最小运行环境就绪
 ///   2. 通过 `tokio::select!` 同时驱动 lighty 的 launch future 与 EventBus 进度监听，
@@ -238,12 +350,9 @@ pub async fn launch_game(
     let mut auth = OfflineAuth::new("Player");
     let profile = auth.authenticate(Some(&bus)).await.map_err(|e| format!("认证失败: {e}"))?;
 
-    // 实例版本即 MC 版本；vanilla 的 loader_version 为空串
-    let loader_version = match loader {
-        Loader::Vanilla => "",
-        _ => "latest", // M5 从元数据解析具体 loader 版本；先用占位交给 lighty
-    };
-    let mut version = VersionBuilder::new(name, loader, loader_version, mc_version);
+    // 实例版本即 MC 版本；launch 前解析具体 loader 版本（fabric 等需精确版本才能拼 meta URL）
+    let loader_version = resolve_loader_version(&loader, mc_version).await?;
+    let mut version = VersionBuilder::new(name, loader, &loader_version, mc_version);
 
     // 接收额外 JVM 参数（如 -Xmx4G → Xmx=4G）
     let mut builder = version.launch(&profile, JavaDistribution::Temurin);
