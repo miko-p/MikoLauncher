@@ -5,7 +5,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Instance } from '@mc-launcher/shared'
+import type { Instance } from '@miko-launcher/shared'
 import { listInstances, createInstance, launchInstance } from '../api'
 
 interface CreatePayload {

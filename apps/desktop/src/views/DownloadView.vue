@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useVersionStore } from '../stores/versions'
-import type { DownloadProgress } from '@mc-launcher/shared'
+import type { DownloadProgress } from '@miko-launcher/shared'
 
 const store = useVersionStore()
 const progress = ref<DownloadProgress | null>(null)

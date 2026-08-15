@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MC Launcher",
+  "productName": "MikoLauncher",
   "version": "0.1.0",
-  "identifier": "dev.mclauncher.app",
+  "identifier": "dev.mikolauncher.app",
   "build": {
-    "beforeDevCommand": "pnpm --filter @mc-launcher/desktop dev",
+    "beforeDevCommand": "pnpm --filter @miko-launcher/desktop dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --filter @mc-launcher/desktop build",
+    "beforeBuildCommand": "pnpm --filter @miko-launcher/desktop build",
     "frontendDist": "../desktop/dist"
   },
   "app": {
     "windows": [
       {
-        "title": "MC Launcher",
+        "title": "MikoLauncher",
         "width": 1100,
         "height": 720,
         "minWidth": 800,

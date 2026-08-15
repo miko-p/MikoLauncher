@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import { useInstanceStore } from '../stores/instances'
-import type { DownloadProgress } from '@mc-launcher/shared'
+import type { DownloadProgress } from '@miko-launcher/shared'
 
 const store = useInstanceStore()
 

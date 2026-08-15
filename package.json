@@ -1,5 +1,5 @@
 {
-  "name": "mc-launcher",
+  "name": "miko-launcher",
   "version": "0.1.0",
   "description": "类 PCL/Modrinth App 的 Minecraft Java 版启动器 — MVVM + OOP + Cordis 插件体系 + Tauri/Rust 内核",
   "private": true,
@@ -9,9 +9,9 @@
     "node": ">=26"
   },
   "scripts": {
-    "build:shared": "pnpm --filter @mc-launcher/shared build",
-    "dev:host": "pnpm --filter @mc-launcher/plugin-host dev",
-    "dev:desktop": "pnpm --filter @mc-launcher/desktop tauri dev",
+    "build:shared": "pnpm --filter @miko-launcher/shared build",
+    "dev:host": "pnpm --filter @miko-launcher/plugin-host dev",
+    "dev:desktop": "pnpm --filter @miko-launcher/desktop tauri dev",
     "build": "pnpm -r build"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@mc-launcher/plugin-host",
+  "name": "@miko-launcher/plugin-host",
   "version": "0.1.0",
   "description": "Node sidecar (Cordis 宿主) — 功能插件注册 / ctx.effect 回滚 / 依赖注入 / HMR",
   "private": true,
@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@mc-launcher/shared": "workspace:*",
+    "@miko-launcher/shared": "workspace:*",
     "better-sqlite3": "^13.0.3",
     "cordis": "4.0.0-rc.8"
   },

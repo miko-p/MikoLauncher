@@ -2,7 +2,7 @@
  * RustBridgeService —— Node sidecar 侧的命令分派中心。
  *
  * 作为 Cordis Service 挂载，接收来自 Rust 核心转发的 JSON-RPC 请求。
- * 用 @mc-launcher/shared 的 methodRegistry 做双向 Zod 校验：
+ * 用 @miko-launcher/shared 的 methodRegistry 做双向 Zod 校验：
  *   - 未知 method → METHOD_NOT_FOUND
  *   - 非法 params → INVALID_PARAMS
  *   - 处理器抛错 → INTERNAL_ERROR
@@ -11,7 +11,7 @@
  */
 
 import { Service } from 'cordis'
-import { getMethodSchema, makeErr, makeOk } from '@mc-launcher/shared'
+import { getMethodSchema, makeErr, makeOk } from '@miko-launcher/shared'
 import type { RpcRequest } from '../bridge/json-rpc.js'
 
 // 处理器参数用 any：Rust 转发的请求在 registry 层是未知结构，具体类型由各插件收窄。

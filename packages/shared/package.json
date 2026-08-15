@@ -1,5 +1,5 @@
 {
-  "name": "@mc-launcher/shared",
+  "name": "@miko-launcher/shared",
   "version": "0.1.0",
   "description": "共享 TS 类型 + Zod schema — Rust↔TS IPC 契约 (Single Source of Truth)",
   "private": true,

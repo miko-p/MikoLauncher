@@ -51,7 +51,7 @@ struct JavaVersionJson {
     major_version: i32,
 }
 
-/// 版本清单条目（对齐 @mc-launcher/shared 的 VersionSchema）
+/// 版本清单条目（对齐 @miko-launcher/shared 的 VersionSchema）
 #[derive(Debug, Clone, Serialize)]
 pub struct VersionEntry {
     pub id: String,
@@ -209,7 +209,7 @@ fn ensure_app_state() -> Result<(), String> {
     if APP_STATE_INIT.load(Ordering::SeqCst) {
         return Ok(());
     }
-    AppState::init("mc-launcher").map_err(|e| format!("AppState 初始化失败: {e}"))?;
+    AppState::init("miko-launcher").map_err(|e| format!("AppState 初始化失败: {e}"))?;
     APP_STATE_INIT.store(true, Ordering::SeqCst);
     Ok(())
 }

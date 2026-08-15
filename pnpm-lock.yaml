@@ -10,7 +10,7 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@mc-launcher/shared':
+      '@miko-launcher/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@tauri-apps/api':
@@ -44,7 +44,7 @@ importers:
 
   apps/plugin-host:
     dependencies:
-      '@mc-launcher/shared':
+      '@miko-launcher/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       better-sqlite3:

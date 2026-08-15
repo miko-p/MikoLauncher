@@ -9,7 +9,7 @@
  */
 
 import { Service } from 'cordis'
-import { InstanceSchema, type Instance, type InstanceCreateParams } from '@mc-launcher/shared'
+import { InstanceSchema, type Instance, type InstanceCreateParams } from '@miko-launcher/shared'
 import { randomUUID } from 'node:crypto'
 import { getDb, type Db } from './db.js'
 

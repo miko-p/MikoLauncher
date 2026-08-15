@@ -1,11 +1,11 @@
 [package]
-name = "mc-launcher"
+name = "miko-launcher"
 version = "0.1.0"
-description = "MC Launcher Rust 核心 — LightyLauncherLib 封装 + Tauri 后端 + Node sidecar 宿主"
+description = "MikoLauncher Rust 核心 — LightyLauncherLib 封装 + Tauri 后端 + Node sidecar 宿主"
 edition = "2021"
 
 [lib]
-name = "mc_launcher_lib"
+name = "miko_launcher_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

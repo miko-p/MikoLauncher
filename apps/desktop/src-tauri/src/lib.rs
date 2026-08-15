@@ -1,4 +1,4 @@
-//! MC Launcher Tauri 后端（Rust 核心）。
+//! MikoLauncher Tauri 后端（Rust 核心）。
 //!
 //! 职责：
 //!   - 暴露给前端的 Tauri command（`invoke`/`emit`）
@@ -205,7 +205,7 @@ pub fn run() {
                     Ok(s) => s,
                     Err(e) => {
                         // sidecar 启动失败不应使应用崩溃：降级为可用占位，返回明确错误。
-                        eprintln!("[mc-launcher] 启动 plugin-host sidecar 失败: {e}");
+                        eprintln!("[miko-launcher] 启动 plugin-host sidecar 失败: {e}");
                         crate::core::sidecar::SyncSidecar::degraded(format!(
                             "plugin-host sidecar 启动失败: {e}"
                         ))
@@ -217,7 +217,7 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(300));
-                let _ = handle.emit("app/ready", json!({ "core": "mc-launcher-rust" }));
+                let _ = handle.emit("app/ready", json!({ "core": "miko-launcher-rust" }));
             });
             Ok(())
         })

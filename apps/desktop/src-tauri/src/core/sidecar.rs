@@ -22,7 +22,7 @@ pub struct SidecarClient {
     next_id: u64,
 }
 
-/// 结构化错误（对齐 @mc-launcher/shared 的 RpcError）
+/// 结构化错误（对齐 @miko-launcher/shared 的 RpcError）
 #[derive(Debug)]
 pub struct RpcCallError {
     pub code: String,

@@ -1,5 +1,5 @@
 {
-  "name": "@mc-launcher/desktop",
+  "name": "@miko-launcher/desktop",
   "version": "0.1.0",
   "description": "Tauri 2 桌面壳 — 前端 Vue3 + Rust 核心 + Node sidecar 宿主",
   "private": true,
@@ -11,7 +11,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@mc-launcher/shared": "workspace:*",
+    "@miko-launcher/shared": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
     "pinia": "^2.2.2",
     "vue": "^3.4.38",

@@ -1,6 +1,6 @@
 # Minecraft 启动器 —— 最终架构蓝图（定稿）
 
-> 项目代号：`mc-launcher`
+> 项目代号：`miko-launcher`
 > 定位：类 PCL / Modrinth App 的 Minecraft Java 版启动器，具备 **MVVM + OOP + 人类可读** 的代码结构，
 > 以及**高度可自定义（主题/布局/功能插件）+ 可回滚卸载**的插件体系，底层采用**时空可组合式编程范式（Cordis）**。
 > 许可证：**开源**（采用 GPLv3 或 MIT，见文末）。本文件为技术方案定稿，可作为后续开发与评审的单一事实来源（Single Source of Truth）。
@@ -118,7 +118,7 @@
 ## 六、monorepo 目录结构（定稿）
 
 ```
-mc-launcher/
+miko-launcher/
 ├─ apps/
 │  ├─ desktop/                 # Tauri 壳 (Rust + 前端宿主)
 │  │  ├─ src-tauri/            # Rust 后端

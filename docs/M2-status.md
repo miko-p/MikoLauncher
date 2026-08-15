@@ -30,7 +30,7 @@
 
 1. **插件日志污染 stdout**：`builtin-instance.ts` 用 `console.log` 打日志，混进 Rust 按 JSON 行解析的 stdout，导致 `BAD_JSON`。修复：所有 sidecar 日志统一走 stderr 的 `log()`（context.ts），并对 Rust 端 `call()` 加了「跳过非 JSON / id 不匹配行」的防御。
 2. **CARGO_MANIFEST_DIR 定位层级**：`.../src-tauri` 需 **3 次 parent** 才到 repo 根（src-tauri→desktop→apps→repo）。抽成 `resolve_plugin_host()` 单一入口，run() 与 self_check() 共用。
-3. **tauri dev beforeDevCommand 用 `--dir` 相对路径**：从 src-tauri 执行会找不到；改成 pnpm workspace 的 `--filter @mc-launcher/desktop`。
+3. **tauri dev beforeDevCommand 用 `--dir` 相对路径**：从 src-tauri 执行会找不到；改成 pnpm workspace 的 `--filter @miko-launcher/desktop`。
 4. **Wayland 下 GTK 窗口报错**：`Gdk-Message Error 71 dispatching to Wayland display` 让窗口刚开就退。用 `GDK_BACKEND=x11` 解决。
 5. GUI 写路径（create 提交）自动化难以稳定验证：该 WebKit/AT-SPI 不暴露 input value、无 vision provider、坐标 click 抖动。改用确定性 `--self-check` 三阶往返证明写路径，GUI 读路径已实时渲染验证。
 

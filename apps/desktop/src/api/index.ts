@@ -1,7 +1,7 @@
 /**
  * 前端 → Rust 的 bridge：封装 `@tauri-apps/api` 的 invoke，并用 shared Zod 契约校验。
  *
- * 每个方法对应一个 Rust Tauri command。响应用 @mc-launcher/shared 里的
+ * 每个方法对应一个 Rust Tauri command。响应用 @miko-launcher/shared 里的
  * schema `.parse()` 校验，契约漂移会立刻在调用方暴露（而非最终运行时崩溃）。
  */
 
@@ -11,7 +11,7 @@ import {
   instanceCreateDataSchema,
   instanceLaunchDataSchema,
   type Instance,
-} from '@mc-launcher/shared'
+} from '@miko-launcher/shared'
 
 /** invoke 的强类型返回：失败时抛 Error(带 message)。 */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

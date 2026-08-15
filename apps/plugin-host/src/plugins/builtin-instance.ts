@@ -1,7 +1,7 @@
 /**
  * 内置功能插件 —— 实例管理 (instance.*) 命令接线。
  *
- * 把 @mc-launcher/shared 里定义的 instance.* 方法映射到实例管理服务。
+ * 把 @miko-launcher/shared 里定义的 instance.* 方法映射到实例管理服务。
  * Cordis 功能插件范式（M0 已验证）：
  *   - inject 声明依赖（空间可组合）
  *   - ctx.effect 注册副作用并返回逆操作（时间可组合，卸载自动回滚）

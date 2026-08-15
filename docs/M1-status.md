@@ -1,6 +1,6 @@
 # M1 — 骨架搭建 ✅ 完成
 
-> 对应 `mc-launcher-architecture.md`「十三、下一步（M1）」。
+> 对应 `miko-launcher-architecture.md`「十三、下一步（M1）」。
 > 交付物全部落地并逐一验证通过。
 
 ## 交付物与验证状态
@@ -36,7 +36,7 @@ apiVersion=2    → ok:false VERSION_MISMATCH
 
 ### 3. Rust 内核（apps/desktop/src-tauri）
 - `cargo run -- --self-check` → `fetch_version_manifest() → 2 个版本条目（骨架数据）`
-- 前端：`pnpm --filter @mc-launcher/desktop build` → vue-tsc 类型检查 + vite 生产构建通过
+- 前端：`pnpm --filter @miko-launcher/desktop build` → vue-tsc 类型检查 + vite 生产构建通过
 - Tauri 2 + lighty-launch + lighty-version + tauri-plugin-shell 全部编译零警告
 
 ## 关键决策 / 踩坑记录

@@ -2,7 +2,7 @@
  * SQLite 持久化层 —— better-sqlite3（对应蓝图「五、数据」）。
  *
  * 实例/账号等数据落盘，重启侧车后仍在（替代 M2 的纯内存 Map）。
- * DB 路径：优先 env `MC_LAUNCHER_DATA_DIR`，否则 <plugin-host>/data/mc-launcher.db。
+ * DB 路径：优先 env `MC_LAUNCHER_DATA_DIR`，否则 <plugin-host>/data/miko-launcher.db。
  */
 
 import Database from 'better-sqlite3'
@@ -33,7 +33,7 @@ let _instance: Db | null = null
 export function getDb(dataDir: string = defaultDataDir()): Db {
   if (_instance) return _instance
   mkdirSync(dataDir, { recursive: true })
-  const raw = new Database(join(dataDir, 'mc-launcher.db'))
+  const raw = new Database(join(dataDir, 'miko-launcher.db'))
   raw.pragma('journal_mode = WAL')
   raw.pragma('foreign_keys = ON')
   migrate(raw)

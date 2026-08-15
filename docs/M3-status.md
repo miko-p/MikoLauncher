@@ -21,7 +21,7 @@
 ### 2. SQLite 持久化（重启存活）
 ```
 RUN1: instance.create(PersistTest,1.21.4,fabric) → id b111755f-...
-      （进程退出，数据落盘 data/mc-launcher.db）
+      （进程退出，数据落盘 data/miko-launcher.db）
 RUN2: 全新进程 → instance.list 仍返回 PersistTest  ✓   ← 证明跨重启持久化
 ```
 
