@@ -434,7 +434,7 @@ pub async fn launch_game(
     };
 
     match result {
-        Err(e) => return Err(e),
+        Err(e) => Err(e),
         Ok(()) => {
             let pid = launched_pid.ok_or_else(|| "游戏进程已启动但未捕获到 pid".to_string())?;
             let major = java_major_for_manifest(mc_version);

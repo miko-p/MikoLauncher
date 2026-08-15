@@ -15,7 +15,7 @@ fn main() {
                 .skip(1) // argv[0]
                 .filter(|a| *a != "--self-check" && *a != "launch")
                 .collect();
-            let name = pos.get(0).map(|s| s.as_str()).unwrap_or("smoke");
+            let name = pos.first().map(|s| s.as_str()).unwrap_or("smoke");
             let ver = pos.get(1).map(|s| s.as_str()).unwrap_or("1.21.4");
             let loader = pos.get(2).map(|s| s.as_str()).unwrap_or("vanilla");
             println!("{}", miko_launcher_lib::launch_smoke(name, ver, loader));

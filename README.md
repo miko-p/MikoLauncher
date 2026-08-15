@@ -6,6 +6,9 @@
 
 强调「可定制、可回滚、可扩展」的插件体系。
 
+[![CI](https://github.com/miko-p/MikoLauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/miko-p/MikoLauncher/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ---
 
 </div>
@@ -122,6 +125,13 @@ MikoLauncher/
 ## 📄 License
 
 [MIT](LICENSE) © Miko
+
+## 🤝 参与贡献
+
+欢迎任何形式的参与 —— 提 issue、修 bug、加功能都可以。
+
+- 想先了解项目约定，读 [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 了解版本变更历史，看 [`CHANGELOG.md`](CHANGELOG.md)
 
 ---
 
