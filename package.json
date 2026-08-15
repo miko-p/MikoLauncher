@@ -1,9 +1,9 @@
 {
   "name": "miko-launcher",
   "version": "0.1.0",
-  "description": "类 PCL/Modrinth App 的 Minecraft Java 版启动器 — MVVM + OOP + Cordis 插件体系 + Tauri/Rust 内核",
+  "description": "MikoLauncher — Minecraft Java 版启动器：Cordis 插件范式 + 前后端分离 + Tauri/Rust 内核",
   "private": true,
-  "license": "GPL-3.0-or-later",
+  "license": "MIT",
   "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=26"
