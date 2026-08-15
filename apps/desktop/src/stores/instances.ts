@@ -48,11 +48,11 @@ export const useInstanceStore = defineStore('instances', () => {
     }
   }
 
-  /** 启动实例（骨架：M3 起接真实 JVM 启动）。 */
-  async function launch(id: string, offline = true) {
+  /** 启动实例（可选指定账号 id，否则用实例绑定账号/离线 Player；M6）。 */
+  async function launch(id: string, accountId?: string, offline = true) {
     error.value = null
     try {
-      return await launchInstance({ instanceId: id, offline })
+      return await launchInstance({ instanceId: id, accountId, offline })
     } catch (e) {
       error.value = (e as Error).message
       return null

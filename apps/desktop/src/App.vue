@@ -9,6 +9,7 @@
         <router-link to="/">首页</router-link>
         <router-link to="/download">下载</router-link>
         <router-link to="/instances">实例</router-link>
+        <router-link to="/accounts">账号</router-link>
       </nav>
     </header>
     <main class="app-main">

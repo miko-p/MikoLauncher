@@ -10,7 +10,12 @@ import {
   instanceListDataSchema,
   instanceCreateDataSchema,
   instanceLaunchDataSchema,
+  accountListDataSchema,
+  accountLoginOfflineDataSchema,
+  accountLoginMicrosoftDataSchema,
+  accountRemoveDataSchema,
   type Instance,
+  type Account,
 } from '@miko-launcher/shared'
 
 /** invoke 的强类型返回：失败时抛 Error(带 message)。 */
@@ -35,9 +40,11 @@ export async function createInstance(payload: {
   return instanceCreateDataSchema.parse(data).instance
 }
 
-/** instance.launch —— 骨架阶段 Rust 侧转发，返回结构化数据（或明确报错）。 */
+/** instance.launch —— Rust 本地真实启动，返回结构化数据。 */
 export async function launchInstance(payload: {
   instanceId: string
+  /** 可选：启动时指定账号 id（否则用实例绑定账号/离线） */
+  accountId?: string
   jvmArgs?: string[]
   offline?: boolean
 }): Promise<{ pid: number; javaVersion: string; jvmArgs: string[] }> {
@@ -58,4 +65,28 @@ export async function fetchVersions(): Promise<
     throw new Error('version_manifest 返回异常')
   }
   return data.versions as { id: string; type: string; url: string; releaseTime: string }[]
+}
+
+/** account.list —— 账号列表。 */
+export async function listAccounts(): Promise<Account[]> {
+  const data = await call<{ accounts: Account[] }>('account_list')
+  return accountListDataSchema.parse(data).accounts
+}
+
+/** account.loginOffline —— 创建/返回离线账号。 */
+export async function loginOffline(name: string): Promise<Account> {
+  const data = await call<{ account: Account }>('account_login_offline', { payload: { name } })
+  return accountLoginOfflineDataSchema.parse(data).account
+}
+
+/** account.loginMicrosoft —— 微软设备流登录（阻塞直到用户授权；device code 经事件推送）。 */
+export async function loginMicrosoft(): Promise<Account> {
+  const data = await call<{ account: Account }>('account_login_microsoft', {})
+  return accountLoginMicrosoftDataSchema.parse(data).account
+}
+
+/** account.remove —— 删除账号。 */
+export async function removeAccount(id: string): Promise<boolean> {
+  const data = await call<{ removed: boolean }>('account_remove', { payload: { id } })
+  return accountRemoveDataSchema.parse(data).removed
 }

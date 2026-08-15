@@ -10,6 +10,7 @@
 //!   结果按同路径返回。
 
 pub mod core {
+    pub mod accounts;
     pub mod launch;
     pub mod sidecar;
 }
@@ -117,6 +118,30 @@ fn instance_launch(
         .ok_or_else(|| "实例缺少 modLoader".to_string())?
         .to_string();
 
+    // 账号：优先用 payload.accountId（启动时显式指定），否则用实例绑定的 accountId，最后回退离线 Player
+    let account_id = payload
+        .get("accountId")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            instance["instance"]["accountId"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        });
+    crate::core::launch::ensure_app_state()?;
+    let store = crate::core::accounts::AccountStore::open()?;
+    let identity = match account_id.and_then(|id| store.get(&id)) {
+        Some(acct) => {
+            store.touch(&acct.id);
+            acct.to_identity().map_err(|e| format!("账号身份解析失败: {e}"))?
+        }
+        None => crate::core::accounts::AccountIdentity::Offline {
+            username: "Player".to_string(),
+        },
+    };
+
     // 解析 JVM 参数（-Xmx4G → ("Xmx", "4G")；-XX:+UseG1GC → 无值 flag）
     let jvm_options: Vec<(String, String)> = jvm_args_raw
         .into_iter()
@@ -143,7 +168,7 @@ fn instance_launch(
             .build()
             .expect("tokio runtime");
         rt.block_on(crate::core::launch::launch_game(
-            &ctx, &name, &version_id, &mod_loader, &jvm_refs,
+            &ctx, &name, &version_id, &mod_loader, &identity, &jvm_refs,
         ))
     })
     .join()
@@ -154,6 +179,71 @@ fn instance_launch(
         "javaVersion": outcome.java_version,
         "jvmArgs": outcome.jvm_args,
     }))
+}
+
+/// 账号列表 —— Rust 本地账号存储。
+#[tauri::command]
+fn account_list() -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let store = crate::core::accounts::AccountStore::open()?;
+    Ok(json!({ "accounts": store.list_json() }))
+}
+
+/// 离线账号登录 —— 创建一个离线账号并持久化。
+#[tauri::command]
+fn account_login_offline(payload: Value) -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 name".to_string())?;
+    let store = crate::core::accounts::AccountStore::open()?;
+    let acct = crate::core::accounts::login_offline(&store, name)?;
+    Ok(json!({ "account": acct.to_public_json() }))
+}
+
+/// 微软账号登录 —— OAuth 设备流（阻塞直到用户在浏览器授权）。
+/// device code 通过 `account:device-code` 事件推给前端，提示用户去浏览器输入。
+#[tauri::command]
+fn account_login_microsoft(app: tauri::AppHandle, payload: Value) -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let _ = payload;
+    let handle = app.clone();
+
+    // 异步设备流（阻塞轮询），device code 同步推送给前端
+    let outcome = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime for ms login");
+        let handle2 = handle.clone();
+        rt.block_on(crate::core::accounts::login_microsoft(move |code, uri| {
+            let _ = handle2.emit(
+                "account:device-code",
+                json!({ "userCode": code, "verificationUri": uri }),
+            );
+        }))
+    })
+    .join()
+    .map_err(|_| "微软登录线程 panic".to_string())??;
+
+    // 持久化
+    let store = crate::core::accounts::AccountStore::open()?;
+    let saved = store.upsert(outcome.clone())?;
+    Ok(json!({ "account": saved.to_public_json() }))
+}
+
+/// 账号删除 —— 移除指定账号。
+#[tauri::command]
+fn account_remove(payload: Value) -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 id".to_string())?;
+    let store = crate::core::accounts::AccountStore::open()?;
+    let removed = store.remove(id)?;
+    Ok(json!({ "removed": removed }))
 }
 
 /// 模拟下载进度 —— 骨架用：向前端推送几个 `download:progress` 事件，
@@ -226,6 +316,10 @@ pub fn run() {
             instance_list,
             instance_create,
             instance_launch,
+            account_list,
+            account_login_offline,
+            account_login_microsoft,
+            account_remove,
             emit_download_progress,
             greet
         ])
@@ -313,6 +407,54 @@ pub fn self_check() -> String {
             "[self-check] ⑤Loader版本(1.21.4): [{}]\n",
             parts.join(", ")
         ));
+    }
+
+    // ⑥ 账号体系（M6）：离线账号 增/查/删 全链路 + 持久化
+    {
+        if let Err(e) = crate::core::launch::ensure_app_state() {
+            report.push_str(&format!("[self-check] ⑥账号: AppState 初始化失败 {e}\n"));
+            return report;
+        }
+        let store = match crate::core::accounts::AccountStore::open() {
+            Ok(s) => s,
+            Err(e) => {
+                report.push_str(&format!("[self-check] ⑥账号: 存储打开失败 {e}\n"));
+                return report;
+            }
+        };
+        match crate::core::accounts::login_offline(&store, "SelfCheckUser") {
+            Ok(acct) => {
+                let listed_before = store.list_json().len();
+                // 账号身份 → launch profile（验证离线账号解析出正确用户名）
+                let identity_check = {
+                    let identity = acct.to_identity().expect("identity ok");
+                    let rt = tokio::runtime::Builder::new_multi_thread()
+                        .enable_io()
+                        .enable_time()
+                        .build()
+                        .expect("tokio runtime for identity");
+                    rt.block_on(async {
+                        crate::core::accounts::identity_to_profile(&identity).await
+                    })
+                };
+                let identity_note = match identity_check {
+                    Ok(p) => format!("→profile={}", p.username),
+                    Err(e) => format!("→profile✗({e})"),
+                };
+                let removed = store.remove(&acct.id);
+                report.push_str(&format!(
+                    "[self-check] ⑥账号: 离线登录 {}(offline) {identity_note} → 列表 {listed_before} 条 → 移除 {} → 剩 {} 条\n",
+                    acct.name,
+                    match removed {
+                        Ok(true) => "✓",
+                        Ok(false) => "✗",
+                        Err(_) => "err",
+                    },
+                    store.list_json().len()
+                ));
+            }
+            Err(e) => report.push_str(&format!("[self-check] ⑥账号: 离线登录失败 {e}\n")),
+        }
     }
 
     let (host_dir, tsx_bin, entry) = resolve_plugin_host();

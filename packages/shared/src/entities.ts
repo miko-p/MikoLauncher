@@ -38,14 +38,22 @@ export const VersionSchema = z.object({
 
 export type Version = z.infer<typeof VersionSchema>
 
-/** 用户名（离线）/ 微软账号 uuid */
+/** 账号（离线 / 微软） */
 export const AccountSchema = z.object({
+  /** 稳定 id（离线=UUID v5 from name；微软=MC uuid） */
   id: z.string(),
+  /** 显示名（离线=用户名；微软=MC 角色名） */
   name: z.string(),
   /** offline | microsoft */
   type: z.enum(['offline', 'microsoft']),
-  /** 微软账号的 accessToken（offline 为空串） */
+  /** 微软账号的 MC accessToken（offline 为空串；不导出供前端，仅内部） */
   accessToken: z.string().optional(),
+  /** 微软账号的 refreshToken（供静默刷新，不放前端显示；offline 空） */
+  refreshToken: z.string().optional(),
+  /** 微软 xuid（offline 空） */
+  xuid: z.string().optional(),
+  /** 最后使用时间 ISO（排序/记忆用） */
+  lastUsed: z.string().optional(),
 })
 
 export type Account = z.infer<typeof AccountSchema>

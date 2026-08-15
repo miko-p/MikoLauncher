@@ -12,8 +12,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Deserialize;
 use serde::Serialize;
 
-use lighty_auth::offline::OfflineAuth;
-use lighty_auth::Authenticator;
 use lighty_core::AppState;
 use lighty_event::{Event, EventBus, JavaEvent, LaunchEvent};
 use lighty_java::JavaDistribution;
@@ -205,7 +203,7 @@ impl LaunchContext {
 // lighty-core 的 AppState 是全局一次性初始化；进程内只允许一次。
 static APP_STATE_INIT: AtomicBool = AtomicBool::new(false);
 
-fn ensure_app_state() -> Result<(), String> {
+pub fn ensure_app_state() -> Result<(), String> {
     if APP_STATE_INIT.load(Ordering::SeqCst) {
         return Ok(());
     }
@@ -337,6 +335,7 @@ pub async fn launch_game(
     name: &str,
     mc_version: &str,
     loader: &str,
+    identity: &crate::core::accounts::AccountIdentity,
     jvm_options: &[(&str, String)],
 ) -> Result<LaunchOutcome, String> {
     ensure_app_state()?;
@@ -346,9 +345,10 @@ pub async fn launch_game(
     let bus = EventBus::new(1024);
     let mut rx = bus.subscribe();
 
-    // 离线账号（M4 先用离线；微软认证后接 lighty-auth）
-    let mut auth = OfflineAuth::new("Player");
-    let profile = auth.authenticate(Some(&bus)).await.map_err(|e| format!("认证失败: {e}"))?;
+    // 账号认证：离线直发 / 微软静默刷新（M6：用实例绑定账号，替代 M4 的硬编码 Player）
+    let profile = crate::core::accounts::identity_to_profile(identity)
+        .await
+        .map_err(|e| format!("认证失败: {e}"))?;
 
     // 实例版本即 MC 版本；launch 前解析具体 loader 版本（fabric 等需精确版本才能拼 meta URL）
     let loader_version = resolve_loader_version(&loader, mc_version).await?;
@@ -497,7 +497,10 @@ pub fn launch_smoke(name: &str, mc_version: &str, loader: &str) -> String {
         .build()
         .expect("tokio runtime");
 
-    let fut = crate::core::launch::launch_game(&ctx2, name, mc_version, loader, &[]);
+    let identity = crate::core::accounts::AccountIdentity::Offline {
+        username: "SmokePlayer".to_string(),
+    };
+    let fut = crate::core::launch::launch_game(&ctx2, name, mc_version, loader, &identity, &[]);
     // 直接 block_on（不依赖 tokio::time）；外层 shell 用 timeout 限定有界观察
     let result = rt.block_on(fut);
 

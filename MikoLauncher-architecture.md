@@ -272,15 +272,21 @@ plugins:
 - `resolve_loader_version(loader, mc)`：fabric/quilt(meta JSON)、forge(maven.minecraftforge.net)、neoforge(maven.neoforged.net) 官方解析精确版本，替代 M4 的 `"latest"` 占位（该占位 lighty 无法拼出合法 URL）。
 - 前端实例页启动时订阅 `download:progress` 实时渲染下载/安装进度条；版本清单展示 `Java xx` 要求。
 
+### M6 — 账号体系 + 微软认证 ✅ 已完成（见 `docs/M6-status.md`）
+- `core/accounts.rs`：AccountStore（JSON 持久化）+ 离线账号（lighty 稳定 UUID）+ 微软账号（`MicrosoftAuth` 设备流 + refresh 静默刷新）+ `AccountIdentity`→launch `UserProfile`。
+- 新增 `account.*` command + `account:device-code` 事件；`instance.launch` 用绑定账号（payload/实例 accountId，回退离线 Player）替代硬编码 Player。
+- 前端账号页（离线/微软登录 + device-code + 删除）+ 实例启动账号下拉。
+
 ---
 
-## 十三、下一步（M6）
+## 十三、下一步（M7）
 
-M5 已完成（见 `docs/M5-status.md`）。M6 起点（优先级建议）：
-1. **微软认证**：接入 lighty-auth 的 Microsoft 流程替换 `OfflineAuth`，实例表补 account/user 绑定。
-2. **NeoForge 版本匹配更精确**：当前按 MC minor 前缀匹配，对跨 minor 特例可能取偏差版本，改用官方版本列表 API。
-3. **版本/loader 选择 UI 增强**：下载页版本分组筛选、启动前可选 loader 版本（当前自动取最新）。
-4. **插件化 MVP**：架构文档原规划的 Phase 0 插件装载 + 主题/布局/功能插件走 Cordis（已顺延）。
+M6 已开账号体系（见 `docs/M6-status.md`）。M7 起点（优先级建议）：
+1. **实例账号绑定持久化**：`instance.updateAccount` 把 accountId 真正写入实例（当前启动时临时指定）。
+2. **微软 token 用 OS keyring**（当前 accounts.json 明文；配 lighty-auth `keyring` feature）。
+3. **NeoForge 版本匹配更精确**：改用官方版本列表 API。
+4. **版本/loader 选择 UI 增强**：下载页分组筛选、启动前可选 loader 版本。
+5. **插件化 MVP**：Phase 0 插件装载 + 主题/布局/功能插件走 Cordis（已顺延）。
 
 ---
 

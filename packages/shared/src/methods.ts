@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod'
-import { InstanceSchema } from './entities.js'
+import { AccountSchema, InstanceSchema } from './entities.js'
 
 /* ------------------------------------------------------------------ *
  *  方法名表（注册点）                                                  *
@@ -21,6 +21,10 @@ export const Method = {
   instanceCreate: 'instance.create',
   instanceRemove: 'instance.remove',
   instanceLaunch: 'instance.launch',
+  accountList: 'account.list',
+  accountLoginOffline: 'account.loginOffline',
+  accountLoginMicrosoft: 'account.loginMicrosoft',
+  accountRemove: 'account.remove',
 } as const
 
 export type MethodName = (typeof Method)[keyof typeof Method]
@@ -105,6 +109,73 @@ export const instanceLaunchDataSchema = z.object({
 export type InstanceLaunchData = z.infer<typeof instanceLaunchDataSchema>
 
 /* ------------------------------------------------------------------ *
+ *  account.list                                                       *
+ * ------------------------------------------------------------------ */
+
+export const accountListParamsSchema = z.object({}).nullable().optional()
+
+export const accountListDataSchema = z.object({
+  accounts: z.array(AccountSchema),
+})
+
+export type AccountListData = z.infer<typeof accountListDataSchema>
+
+/* ------------------------------------------------------------------ *
+ *  account.loginOffline                                               *
+ * ------------------------------------------------------------------ */
+
+export const accountLoginOfflineParamsSchema = z.object({
+  /** 离线用户名（3-16 位字母数字下划线） */
+  name: z.string().min(3).max(16),
+})
+
+export type AccountLoginOfflineParams = z.infer<typeof accountLoginOfflineParamsSchema>
+
+export const accountLoginOfflineDataSchema = z.object({
+  account: AccountSchema,
+})
+
+/* ------------------------------------------------------------------ *
+ *  account.loginMicrosoft                                             *
+ * ------------------------------------------------------------------ */
+
+export const accountLoginMicrosoftParamsSchema = z.object({}).nullable().optional()
+
+export type AccountLoginMicrosoftParams = z.infer<typeof accountLoginMicrosoftParamsSchema>
+
+export const accountLoginMicrosoftDataSchema = z.object({
+  account: AccountSchema,
+})
+
+/* ------------------------------------------------------------------ *
+ *  account.remove                                                     *
+ * ------------------------------------------------------------------ */
+
+export const accountRemoveParamsSchema = z.object({
+  id: z.string(),
+})
+
+export const accountRemoveDataSchema = z.object({
+  removed: z.boolean(),
+})
+
+/* ------------------------------------------------------------------ *
+ *  微软登录事件（device code 提示，Rust → 前端）                         *
+ * ------------------------------------------------------------------ */
+
+export const AccountDeviceCodeEventName = 'account:device-code' as const
+
+/** 微软设备流登录时推给前端，提示用户去浏览器输入 code */
+export const AccountDeviceCodeSchema = z.object({
+  /** 一次性验证码 */ 
+  userCode: z.string(),
+  /** 验证网址（如 https://microsoft.com/link） */
+  verificationUri: z.string(),
+})
+
+export type AccountDeviceCode = z.infer<typeof AccountDeviceCodeSchema>
+
+/* ------------------------------------------------------------------ *
  *  下载进度事件（Tauri events，Rust → 前端）                            *
  * ------------------------------------------------------------------ */
 
@@ -154,6 +225,22 @@ export const methodRegistry = {
   [Method.instanceLaunch]: {
     params: instanceLaunchParamsSchema,
     data: instanceLaunchDataSchema,
+  },
+  [Method.accountList]: {
+    params: accountListParamsSchema,
+    data: accountListDataSchema,
+  },
+  [Method.accountLoginOffline]: {
+    params: accountLoginOfflineParamsSchema,
+    data: accountLoginOfflineDataSchema,
+  },
+  [Method.accountLoginMicrosoft]: {
+    params: accountLoginMicrosoftParamsSchema,
+    data: accountLoginMicrosoftDataSchema,
+  },
+  [Method.accountRemove]: {
+    params: accountRemoveParamsSchema,
+    data: accountRemoveDataSchema,
   },
 } as const
 

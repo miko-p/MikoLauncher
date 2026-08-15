@@ -2,13 +2,17 @@
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import { useInstanceStore } from '../stores/instances'
+import { useAccountStore } from '../stores/accounts'
 import type { DownloadProgress } from '@miko-launcher/shared'
 
 const store = useInstanceStore()
+const accountStore = useAccountStore()
 
 const showCreate = ref(false)
 const form = reactive({ name: '', versionId: '1.21.4', modLoader: 'fabric' as const })
 
+/** 每个实例启动时选用的账号 id（'' = 默认/离线） */
+const launchAccountId = reactive<Record<string, string>>({})
 /** 正在启动的实例 id + 其实时下载/安装进度。 */
 const launchingId = ref<string | null>(null)
 const activeProgress = ref<DownloadProgress | null>(null)
@@ -27,7 +31,7 @@ async function create() {
 async function start(instId: string) {
   launchingId.value = instId
   activeProgress.value = null
-  await store.launch(instId)
+  await store.launch(instId, launchAccountId[instId] || undefined)
   // M4 起 lighty `run()` 在游戏运行期间不返回，此处的 await 会一直 pending
   //（启动动作在后台线程执行），直到游戏退出才 resolve —— 不阻塞 UI。
   launchingId.value = null
@@ -46,6 +50,7 @@ async function setupProgress() {
 onMounted(() => {
   setupProgress()
   store.fetchInstances()
+  accountStore.fetchAccounts()
 })
 onUnmounted(() => unlisten?.())
 </script>
@@ -79,13 +84,25 @@ onUnmounted(() => unlisten?.())
 
     <ul v-if="store.instances.length" class="list">
       <li v-for="inst in store.instances" :key="inst.id" class="item">
-        <div>
+        <div class="inst-info">
           <strong>{{ inst.name }}</strong>
           <span class="muted"> {{ inst.versionId }} · {{ inst.modLoader }}</span>
         </div>
-        <button @click="start(inst.id)" class="launch" :disabled="launchingId === inst.id">
-          {{ launchingId === inst.id ? '启动中…' : '启动' }}
-        </button>
+        <div class="launch-group">
+          <select
+            v-model="launchAccountId[inst.id]"
+            class="acct-select"
+            title="启动时使用哪个账号（默认：离线 Player）"
+          >
+            <option value="">默认账号</option>
+            <option v-for="acc in accountStore.accounts" :key="acc.id" :value="acc.id">
+              {{ acc.name }} ({{ acc.type === 'microsoft' ? '微软' : '离线' }})
+            </option>
+          </select>
+          <button @click="start(inst.id)" class="launch" :disabled="launchingId === inst.id">
+            {{ launchingId === inst.id ? '启动中…' : '启动' }}
+          </button>
+        </div>
       </li>
     </ul>
     <p v-else-if="!store.loading && !store.error" class="muted">还没有实例。点「+ 新建实例」创建一个。</p>
@@ -120,6 +137,13 @@ onUnmounted(() => unlisten?.())
 .list { list-style: none; padding: 0; }
 .item { display: flex; justify-content: space-between; align-items: center;
   padding: 0.6rem 0.8rem; border: 1px solid var(--border, #333); border-radius: var(--radius, 8px); margin-bottom: 0.5rem; }
+.inst-info { display: flex; flex-direction: column; gap: 0.2rem; }
+.launch-group { display: flex; align-items: center; gap: 0.5rem; }
+.acct-select {
+  background: var(--bg-elevated, #1b1f27); color: var(--text, #eee);
+  border: 1px solid var(--border, #333); padding: 0.25rem 0.4rem; border-radius: var(--radius, 8px);
+  max-width: 11rem;
+}
 .launch { padding: 0.25rem 0.9rem; border-radius: var(--radius, 8px);
   background: var(--accent, #39c5bb); color: #111; border: none; cursor: pointer; }
 .launch:disabled { opacity: 0.5; cursor: default; }

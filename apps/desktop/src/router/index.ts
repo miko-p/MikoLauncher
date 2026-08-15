@@ -7,5 +7,6 @@ export const router = createRouter({
     { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
     { path: '/download', name: 'download', component: () => import('../views/DownloadView.vue') },
     { path: '/instances', name: 'instances', component: () => import('../views/InstancesView.vue') },
+    { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
   ],
 })
