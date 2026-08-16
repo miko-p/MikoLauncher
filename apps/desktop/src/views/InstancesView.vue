@@ -11,8 +11,6 @@ const accountStore = useAccountStore()
 const showCreate = ref(false)
 const form = reactive({ name: '', versionId: '1.21.4', modLoader: 'fabric' as const })
 
-/** 每个实例启动时选用的账号 id（'' = 默认/离线） */
-const launchAccountId = reactive<Record<string, string>>({})
 /** 正在启动的实例 id + 其实时下载/安装进度。 */
 const launchingId = ref<string | null>(null)
 const activeProgress = ref<DownloadProgress | null>(null)
@@ -27,11 +25,17 @@ async function create() {
   }
 }
 
+/** 切换实例绑定的账号（M7：持久化到实例，下次启动直接生效）；空串解绑。 */
+function onBindAccount(instId: string, accountId: string) {
+  store.bindAccount(instId, accountId || null)
+}
+
 /** 启动实例并实时渲染 lighty 的下载/安装进度（Rust 经 download:progress 推送）。 */
 async function start(instId: string) {
   launchingId.value = instId
   activeProgress.value = null
-  await store.launch(instId, launchAccountId[instId] || undefined)
+  // M7：不再临时指定账号 —— 用实例已持久化的绑定账号（无则离线 Player）
+  await store.launch(instId)
   // M4 起 lighty `run()` 在游戏运行期间不返回，此处的 await 会一直 pending
   //（启动动作在后台线程执行），直到游戏退出才 resolve —— 不阻塞 UI。
   launchingId.value = null
@@ -90,11 +94,12 @@ onUnmounted(() => unlisten?.())
         </div>
         <div class="launch-group">
           <select
-            v-model="launchAccountId[inst.id]"
+            :value="inst.accountId ?? ''"
             class="acct-select"
-            title="启动时使用哪个账号（默认：离线 Player）"
+            title="选择启动时使用的账号（M7：持久化绑定到该实例，空项 = 解绑/离线）"
+            @change="(e) => onBindAccount(inst.id, (e.target as HTMLSelectElement).value)"
           >
-            <option value="">默认账号</option>
+            <option value="">默认账号（离线）</option>
             <option v-for="acc in accountStore.accounts" :key="acc.id" :value="acc.id">
               {{ acc.name }} ({{ acc.type === 'microsoft' ? '微软' : '离线' }})
             </option>

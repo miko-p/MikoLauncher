@@ -299,7 +299,12 @@ pub async fn resolve_loader_version(loader: &Loader, mc_version: &str) -> Result
             versions.last().cloned().ok_or_else(|| format!("Forge 未提供 {mc_version} 的版本"))
         }
         Loader::NeoForge => {
-            // NeoForge ≥1.20.2 版本号形如 `{mc_minor}.{patch}`（21.8.x ↔ 1.21.x）；maven-metadata 取最后匹配的
+            // NeoForge ≥1.20.2 版本号形如 `{mc_minor}.{mc_patch}.{bf}`（官方版本命名规则：
+            //   major = MC 的 minor 版本，minor = MC 的 patch 版本，patch = 实际 NeoForge 版本）。
+            // 例：MC 1.21.4 ↔ NeoForge 21.4.x。
+            // M7-3：用 `{minor}.{patch}.` 精确前缀（而非只按 minor 的 `{minor}.`），
+            // 避免把其它 minor 版本（如 MC 1.21.0 的 21.0.x）误当作目标 MC patch 的 loaderversion 命中。
+            // maven-metadata 的 version 列表按时间递增，取最后匹配即该 MC 的最新 loader 版本（不做字符串排序，避免 21.4.58 vs 21.4.9 出错）。
             let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
             let xml = client
                 .get(url)
@@ -312,13 +317,16 @@ pub async fn resolve_loader_version(loader: &Loader, mc_version: &str) -> Result
                 .text()
                 .await
                 .map_err(|e| format!("NeoForge 元数据读取失败: {e}"))?;
-            // mc 如 "1.21.4" → 前缀 "21."（NeoForge 版本对齐 MC minor）
-            let minor = mc_version.split('.').nth(1).unwrap_or("");
-            let prefix = format!("{minor}.");
+            // MC "1.21.4" → minor="21", patch="4" → prefix "21.4."
+            let parts: Vec<&str> = mc_version.split('.').collect();
+            let minor = parts.get(1).copied().unwrap_or("");
+            let patch = parts.get(2).copied().unwrap_or("");
+            let prefix = format!("{minor}.{patch}.");
             let mut versions = extract_maven_versions(&xml);
             versions.retain(|v| v.starts_with(&prefix));
-            // 取按时间递增列表的最后一个（最新）；不做字符串排序
-            versions.last().cloned().ok_or_else(|| format!("NeoForge 未提供 {mc_version} 的版本"))
+            versions.last().cloned().ok_or_else(|| {
+                format!("NeoForge 未提供 {mc_version} ({prefix}*) 的版本")
+            })
         }
         other => Err(format!("不支持的 loader 版本解析: {other:?}")),
     }

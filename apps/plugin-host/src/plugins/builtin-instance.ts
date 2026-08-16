@@ -30,6 +30,9 @@ export function apply(ctx: Context) {
       bridge.on('instance.get', (params: { id: string }) => ctx.instanceManager.get(params.id)),
       bridge.on('instance.create', (params: any) => ctx.instanceManager.create(params)),
       bridge.on('instance.remove', (params: { id: string }) => ctx.instanceManager.remove(params.id)),
+      bridge.on('instance.updateAccount', (params: { id: string; accountId?: string | null }) =>
+        ctx.instanceManager.updateAccount(params.id, params.accountId),
+      ),
       // launch 骨架：委托实例管理（M2 起换 Rust LaunchAdapter 真实启动）
       bridge.on('instance.launch', () => {
         throw new Error('instance.launch 尚未接入 Rust 启动内核（M2）')

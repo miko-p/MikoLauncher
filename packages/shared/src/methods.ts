@@ -20,6 +20,7 @@ export const Method = {
   instanceGet: 'instance.get',
   instanceCreate: 'instance.create',
   instanceRemove: 'instance.remove',
+  instanceUpdateAccount: 'instance.updateAccount',
   instanceLaunch: 'instance.launch',
   accountList: 'account.list',
   accountLoginOffline: 'account.loginOffline',
@@ -81,6 +82,22 @@ export const instanceRemoveParamsSchema = z.object({
 
 export const instanceRemoveDataSchema = z.object({
   removed: z.boolean(),
+})
+
+/* ------------------------------------------------------------------ *
+ *  instance.updateAccount                                             *
+ * ------------------------------------------------------------------ */
+
+export const instanceUpdateAccountParamsSchema = z.object({
+  id: z.string(),
+  /** 绑定/解绑账号 id；传 null 或空串解绑（回到离线 Player） */
+  accountId: z.string().nullable().optional(),
+})
+
+export type InstanceUpdateAccountParams = z.infer<typeof instanceUpdateAccountParamsSchema>
+
+export const instanceUpdateAccountDataSchema = z.object({
+  instance: InstanceSchema,
 })
 
 /* ------------------------------------------------------------------ *
@@ -221,6 +238,10 @@ export const methodRegistry = {
   [Method.instanceRemove]: {
     params: instanceRemoveParamsSchema,
     data: instanceRemoveDataSchema,
+  },
+  [Method.instanceUpdateAccount]: {
+    params: instanceUpdateAccountParamsSchema,
+    data: instanceUpdateAccountDataSchema,
   },
   [Method.instanceLaunch]: {
     params: instanceLaunchParamsSchema,

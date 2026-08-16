@@ -12,6 +12,7 @@
 pub mod core {
     pub mod accounts;
     pub mod launch;
+    pub mod secrets;
     pub mod sidecar;
 }
 
@@ -77,6 +78,30 @@ fn instance_list(state: tauri::State<'_, AppState>) -> Result<Value, String> {
 #[tauri::command]
 fn instance_create(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
     call_sidecar(&state, "instance.create", payload)
+}
+
+/// 绑定/解绑实例账号 —— 转发到 sidecar instance.updateAccount（M7：账号绑定持久化）。
+#[tauri::command]
+fn instance_update_account(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "instance.updateAccount", payload)
+}
+
+/// 插件列表 —— 转发到 sidecar plugin.list（M7-5 Phase0 插件管理）。
+#[tauri::command]
+fn plugin_list(state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    call_sidecar(&state, "plugin.list", json!({}))
+}
+
+/// 启用插件 —— 转发到 sidecar plugin.enable（M7-5）。
+#[tauri::command]
+fn plugin_enable(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "plugin.enable", payload)
+}
+
+/// 禁用插件 —— 转发到 sidecar plugin.disable（M7-5；卸载即回滚其 effect）。
+#[tauri::command]
+fn plugin_disable(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "plugin.disable", payload)
 }
 
 /// 启动实例 —— M4：改为 Rust 本地 LaunchAdapter 真实启动（lighty 内核），不再转发 sidecar。
@@ -315,7 +340,11 @@ pub fn run() {
             version_manifest,
             instance_list,
             instance_create,
+            instance_update_account,
             instance_launch,
+            plugin_list,
+            plugin_enable,
+            plugin_disable,
             account_list,
             account_login_offline,
             account_login_microsoft,
@@ -457,11 +486,77 @@ pub fn self_check() -> String {
         }
     }
 
+    // ⑦ OS keyring（M7-2）：写→读→删 往返，验证微软 refresh_token 的安全落点
+    {
+        let enabled = crate::core::secrets::enabled();
+        let test_id = format!("selfcheck-{}", std::process::id());
+        match crate::core::secrets::store_secret(&test_id, "super-secret-keyring-test") {
+            Ok(()) => {
+                let read_back = crate::core::secrets::read_secret(&test_id);
+                let note = match &read_back {
+                    Ok(Some(v)) if v == "super-secret-keyring-test" => "写→读✓",
+                    Ok(None) => "写后读为空✗",
+                    Ok(_) => "写后读不一致✗",
+                    Err(e) => &format!("读✗({e})")[..],
+                };
+                let del = crate::core::secrets::delete_secret(&test_id);
+                let del_note = match del {
+                    Ok(()) => "删✓",
+                    Err(e) => &format!("删✗({e})")[..],
+                };
+                // 删除后再读应为 None，验证真的删掉了
+                let gone = crate::core::secrets::read_secret(&test_id)
+                    .map(|v| v.is_none())
+                    .unwrap_or(false);
+                report.push_str(&format!(
+                    "[self-check] ⑦keyring: 特性={enabled} → {note} {del_note} 残留={} → 往返{}\n",
+                    if gone { "无" } else { "有" },
+                    if gone { "✓" } else { "✗" }
+                ));
+            }
+            Err(e) => {
+                report.push_str(&format!(
+                    "[self-check] ⑦keyring: 特性={enabled} 但存储不可用（无 D-Bus 会话?）→ {e}\n"
+                ));
+            }
+        }
+    }
+
     let (host_dir, tsx_bin, entry) = resolve_plugin_host();
     let sidecar = match crate::core::sidecar::SyncSidecar::start(&host_dir, &tsx_bin, &[&entry]) {
         Ok(s) => s,
         Err(e) => return format!("{report}[self-check] 无法启动 sidecar: {e}"),
     };
+
+    // ⑧ Phase0 插件装载（M7-5）：经 sidecar plugin.list 验证 plugins/ 目录里的插件已被 Cordis 装载
+    match sidecar.call("plugin.list", serde_json::json!({})) {
+        Ok(d) => {
+            let names: Vec<String> = d["plugins"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .map(|p| {
+                            let loaded = p["loaded"].as_bool().unwrap_or(false);
+                            let hash_ok = p["hashOk"].as_bool().unwrap_or(false);
+                            let name = p["name"].as_str().unwrap_or("?");
+                            format!(
+                                "{}{}{}",
+                                name,
+                                if hash_ok { "@hash✓" } else { "@hash✗" },
+                                if loaded { "[已装载]" } else { "" }
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            report.push_str(&format!(
+                "[self-check] ⑧插件(M7-5): count={} [{}]\n",
+                names.len(),
+                names.join(", ")
+            ));
+        }
+        Err(e) => report.push_str(&format!("[self-check] ⑧插件: plugin.list 失败 {e}\n")),
+    }
 
     // 1) 读：list
     let list1 = match sidecar.call("instance.list", serde_json::json!({})) {

@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   instanceListDataSchema,
   instanceCreateDataSchema,
+  instanceUpdateAccountDataSchema,
   instanceLaunchDataSchema,
   accountListDataSchema,
   accountLoginOfflineDataSchema,
@@ -55,6 +56,17 @@ export async function launchInstance(payload: {
   return instanceLaunchDataSchema.parse(data)
 }
 
+/** instance.updateAccount —— 绑定/解绑实例关联账号（M7 持久化）。accountId 传 undefined 解绑。 */
+export async function updateInstanceAccount(
+  id: string,
+  accountId?: string | null,
+): Promise<Instance> {
+  const data = await call<{ instance: Instance }>('instance_update_account', {
+    payload: { id, accountId },
+  })
+  return instanceUpdateAccountDataSchema.parse(data).instance
+}
+
 /** version_manifest —— 真实拉取 Mojang 版本清单（Rust 内核）。 */
 export async function fetchVersions(): Promise<
   { id: string; type: string; url: string; releaseTime: string; javaMajor?: number | null }[]
@@ -89,4 +101,26 @@ export async function loginMicrosoft(): Promise<Account> {
 export async function removeAccount(id: string): Promise<boolean> {
   const data = await call<{ removed: boolean }>('account_remove', { payload: { id } })
   return accountRemoveDataSchema.parse(data).removed
+}
+
+/** plugin.list —— Phase0 插件列表（M7-5）。 */
+export async function listPlugins(): Promise<
+  { name: string; version: string; loaded: boolean; hashOk: boolean; reason?: string }[]
+> {
+  const data = await call<{ plugins: never[] }>('plugin_list')
+  return (data.plugins ?? []) as { name: string; version: string; loaded: boolean; hashOk: boolean }[]
+}
+
+/** plugin.enable —— 启用插件（M7-5）。 */
+export async function enablePlugin(name: string) {
+  return call<{ name: string; version?: string; loaded: boolean; hashOk?: boolean }>(
+    'plugin_enable',
+    { payload: { name } },
+  )
+}
+
+/** plugin.disable —— 禁用插件（卸载即回滚其 effect，M7-5）。 */
+export async function disablePlugin(name: string): Promise<boolean> {
+  const data = await call<{ disabled: boolean }>('plugin_disable', { payload: { name } })
+  return data.disabled
 }

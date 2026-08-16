@@ -18,6 +18,7 @@ import { root, ServiceName } from './context.js'
 import { JsonRpcServer } from './bridge/json-rpc.js'
 import { RustBridgeService } from './bridge/rust-bridge.js'
 import { InstanceManagerService } from './services/instance-manager.js'
+import { PluginManagerService } from './services/plugin-manager.js'
 import * as builtinInstance from './plugins/builtin-instance.js'
 import type { RpcRequest } from './bridge/json-rpc.js'
 
@@ -28,11 +29,24 @@ async function main() {
   // ctx.plugin 返回 fiber。await 保证依赖图先就绪再开 RPC server。
   const srvFiber = await root.plugin(RustBridgeService)
   await root.plugin(InstanceManagerService)
-  process.stderr.write(`[plugin-host] services mounted: ${ServiceName.instanceManager}, ${ServiceName.rustBridge}\n`)
+  const pluginSvc = await root.plugin(PluginManagerService)
+  process.stderr.write(
+    `[plugin-host] services mounted: ${ServiceName.instanceManager}, ${ServiceName.rustBridge}, ${ServiceName.pluginManager}\n`,
+  )
 
   // ── 挂载内置功能插件（复用 M0 验证的 {name,inject,apply} 范式）──
   const instFiber = await root.plugin(builtinInstance)
   process.stderr.write('[plugin-host] builtin-instance plugin mounted\n')
+
+  // ── M7-5：Phase 0 用户插件装载（plugins/ + hash 校验，走 Cordis）──
+  // 先注册 plugin.* RPC（让前端/自检能查/启用/禁用），再装载所有 hash 通过的插件
+  root.pluginManager.registerBridge(root.rustBridge)
+  const loaded = await root.pluginManager.loadAll()
+  const okCount = loaded.filter((p) => p.loaded).length
+  const badCount = loaded.filter((p) => !p.loaded).length
+  process.stderr.write(
+    `[plugin-host] Phase0 插件: 目录=${root.pluginManager.list().length} 候选，装载 ${okCount} 个，跳过 ${badCount} 个\n`,
+  )
 
   // ── JSON-RPC server：从 stdin 读请求 → RustBridgeService 分派 → stdout 响应 ──
   const rpc = new JsonRpcServer({
@@ -46,6 +60,8 @@ async function main() {
     root.fiber.dispose().then(() => {
       // 也单独演示单插件 fiber.dispose()（热卸载/重载的基础）
       void srvFiber
+      void instFiber
+      void pluginSvc
       process.stderr.write('[plugin-host] === plugin-host stopped (all plugin effects rolled back) ===\n')
       process.exit(0)
     })

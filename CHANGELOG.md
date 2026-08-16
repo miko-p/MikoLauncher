@@ -4,12 +4,17 @@
 
 ## [未发布]
 
-### 计划中
-- 实例账号绑定持久化（`instance.updateAccount`）
-- 微软 access token 改用 OS keyring 存储
-- NeoForge 版本匹配改用官方版本列表 API
-- 版本 / loader 选择 UI 增强（分组筛选、启动前可选 loader 版本）
-- 插件化 MVP：Phase 0 插件装载 + 主题 / 布局 / 功能插件走 Cordis
+### M7 已添加
+- **实例账号绑定持久化**：`instance.updateAccount` 把 accountId 真实写入实例（SQLite），前端下拉直接持久化；启动用实例绑定账号（替代启动时临时指定）
+- **微软凭据落 OS keyring**：refresh_token 存 Secret Service / Keychain / Credential Manager（`keyring` feature 默认开），accounts.json 不再存明文；无 keyring 会话安全回退；删账号连带清理
+- **NeoForge 版本精确匹配**：改按官方命名规则的 `{minor}.{patch}.` 精确前缀（修掉误匹配其它 MC patch 的 bug）
+- **下载页 UI 增强**：类型分组 tabs + 关键字搜索 + 每版本 loader 下拉「以此版本创建实例」
+- **Phase 0 功能插件装载**：`plugins/*/` + hash 校验 + `ctx.plugin()` 走 Cordis（空间可组合注入 / 时间可组合回滚）；`plugin.list/enable/disable` + 插件页；示例插件 `demo-greeter`
+
+### 计划中（M8）
+- 主题 / 布局插件（需前端注入点）
+- 插件市场 / 签名（Phase 1/2）
+- 微软静默刷新失败重登录 UI
 
 ---
 

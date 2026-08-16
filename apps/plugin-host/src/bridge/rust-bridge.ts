@@ -43,32 +43,41 @@ export class RustBridgeService extends Service {
     const schema = getMethodSchema(req.method) as
       | { params: { safeParse(v: unknown): { success: boolean; data?: any; error?: any } } }
       | undefined
-    if (!schema) {
+
+    // M7-5：插件可注册自定义方法（不在共享 methodRegistry 里）。
+    // 核心内置方法走严格 Zod 校验；插件方法不在 registry 时，只要注册了 handler 就放行
+    // （参数形状由插件自己收窄），保持"契约即代码"只约束核心、插件有扩展空间。
+    if (schema) {
+      const parsed = schema.params.safeParse(req.params ?? {})
+      if (!parsed.success) {
+        return makeErr(req.id, {
+          code: 'INVALID_PARAMS',
+          message: 'invalid params',
+          data: parsed.error?.flatten(),
+        })
+      }
+      return this.dispatch(req, parsed.data)
+    }
+
+    // 非契约方法：交给 handler（允许插件扩展方法名）
+    const hasHandler = (this.handlers.get(req.method)?.length ?? 0) > 0
+    if (!hasHandler) {
       return makeErr(req.id, {
         code: 'METHOD_NOT_FOUND',
         message: `unknown method: ${req.method}`,
       })
     }
+    return this.dispatch(req, req.params ?? {})
+  }
 
-    // 1) 校验 params
-    const parsed = schema.params.safeParse(req.params ?? {})
-    if (!parsed.success) {
-      return makeErr(req.id, {
-        code: 'INVALID_PARAMS',
-        message: 'invalid params',
-        data: parsed.error?.flatten(),
-      })
-    }
-
-    // 2) 派发到已注册处理器
+  private async dispatch(req: RpcRequest, params: any) {
     const list = this.handlers.get(req.method) ?? []
     if (list.length === 0) {
       return makeErr(req.id, { code: 'NOT_FOUND', message: `no handler for ${req.method} in plugin-host` })
     }
-
     try {
       for (const handler of list) {
-        const out = await handler(parsed.data)
+        const out = await handler(params)
         if (out !== undefined) return makeOk(req.id, out)
       }
       return makeErr(req.id, { code: 'INTERNAL_ERROR', message: `handlers of ${req.method} returned undefined` })

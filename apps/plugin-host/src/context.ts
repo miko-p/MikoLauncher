@@ -16,6 +16,7 @@ export const root = new Context()
 export const ServiceName = {
   rustBridge: 'rustBridge',
   instanceManager: 'instanceManager',
+  pluginManager: 'pluginManager',
   downloadService: 'downloadService',
   authService: 'authService',
 } as const

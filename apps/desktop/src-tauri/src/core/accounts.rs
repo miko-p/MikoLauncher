@@ -37,7 +37,7 @@ pub struct AccountEntry {
     /// 微软 MC access_token（离线空串；不导出给前端）
     #[serde(default)]
     pub access_token: String,
-    /// 微软 refresh_token（供 launch 静默刷新；离线空）
+    /// 微软 refresh_token（离线空）；`keyring == true` 时存 OS keyring，此字段为空
     #[serde(default)]
     pub refresh_token: String,
     /// 微软 xuid（离线空）
@@ -46,6 +46,9 @@ pub struct AccountEntry {
     /// 最后使用时间 ISO8601
     #[serde(default)]
     pub last_used: String,
+    /// M7-2：refresh_token 是否存于 OS keyring（accounts.json 不存明文）
+    #[serde(default)]
+    pub keyring: bool,
 }
 
 impl AccountEntry {
@@ -63,6 +66,48 @@ impl AccountEntry {
             "xuid": self.xuid,
             "lastUsed": self.last_used,
         })
+    }
+
+    /// 读取本账号的微软 refresh_token：keyring 优先，回退内置字段。
+    /// 离线账号返回空串。
+    pub fn ms_refresh_token_in(&self) -> String {
+        if self.account_type != AccountType::Microsoft {
+            return String::new();
+        }
+        if self.keyring {
+            crate::core::secrets::read_secret(&self.id)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| {
+                    eprintln!(
+                        "[miko-launcher] keyring 读取失败或已删除，回退到 accounts.json 内置（如有）"
+                    );
+                    self.refresh_token.clone()
+                })
+        } else {
+            self.refresh_token.clone()
+        }
+    }
+
+    /// 把 refresh_token 写入存储（keyring 生效时优先），并同步 keyring 标记。
+    pub fn set_ms_refresh_token(&mut self, token: String) {
+        if token.is_empty() {
+            self.refresh_token.clear();
+            self.keyring = false;
+            return;
+        }
+        // 优先 OS keyring；失败（feature 关闭 / 无 D-Bus）回退 accounts.json 明文
+        match crate::core::secrets::store_secret(&self.id, &token) {
+            Ok(()) => {
+                self.refresh_token.clear();
+                self.keyring = true;
+            }
+            Err(e) => {
+                eprintln!("[miko-launcher] keyring 存失败，回退 accounts.json 明文: {e}");
+                self.refresh_token = token;
+                self.keyring = false;
+            }
+        }
     }
 }
 
@@ -134,14 +179,20 @@ impl AccountStore {
         Ok(entry)
     }
 
-    /// 删除账号；返回是否删除成功。
+    /// 删除账号；返回是否删除成功。若该账号 refresh_token 存于 keyring，一并删除。
     pub fn remove(&self, id: &str) -> Result<bool, String> {
-        let removed = {
+        let (removed, was_keyring) = {
             let mut guard = self.inner.lock().unwrap();
-            guard.remove(id).map(|_| ()).is_some()
+            let existed = guard.get(id).cloned();
+            let removed = guard.remove(id).map(|_| ()).is_some();
+            (removed, existed.map(|e| e.keyring).unwrap_or(false))
         };
         if removed {
             self.save()?;
+            // M7-2：微软账号若用 keyring 存 refresh_token，删除账号时一并清理
+            if was_keyring {
+                let _ = crate::core::secrets::delete_secret(id);
+            }
         }
         Ok(removed)
     }
@@ -189,6 +240,7 @@ pub fn create_offline_account(name: &str) -> Result<AccountEntry, String> {
         refresh_token: String::new(),
         xuid: String::new(),
         last_used: chrono_now(),
+        keyring: false,
     })
 }
 
@@ -241,15 +293,19 @@ where
         _ => String::new(),
     };
 
-    Ok(AccountEntry {
+    // M7-2：把 refresh_token 优先写入 OS keyring（feature 关闭/无 D-Bus 时回退 accounts.json 明文）
+    let mut entry = AccountEntry {
         id: profile.uuid,
         name: profile.username,
         account_type: AccountType::Microsoft,
         access_token: token_to_string(&profile.access_token),
-        refresh_token,
+        refresh_token: String::new(),
         xuid: profile.xuid.unwrap_or_default(),
         last_used: chrono_now(),
-    })
+        keyring: false,
+    };
+    entry.set_ms_refresh_token(refresh_token);
+    Ok(entry)
 }
 
 /// 用微软 refresh_token 静默刷新，返回新的 UserProfile（供 launch）。
@@ -290,9 +346,10 @@ impl AccountEntry {
             }),
             AccountType::Microsoft => {
                 let client_id = default_ms_client_id()?;
+                // M7-2：refresh_token 从 OS keyring 读（无则回退内置字段）
                 Ok(AccountIdentity::Microsoft {
                     client_id,
-                    refresh_token: self.refresh_token.clone(),
+                    refresh_token: self.ms_refresh_token_in(),
                 })
             }
         }

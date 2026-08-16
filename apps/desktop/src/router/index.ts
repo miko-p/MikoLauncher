@@ -8,5 +8,6 @@ export const router = createRouter({
     { path: '/download', name: 'download', component: () => import('../views/DownloadView.vue') },
     { path: '/instances', name: 'instances', component: () => import('../views/InstancesView.vue') },
     { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
+    { path: '/plugins', name: 'plugins', component: () => import('../views/PluginsView.vue') },
   ],
 })

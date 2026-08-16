@@ -34,9 +34,16 @@ lighty-modsloader = "26.5.12"
 # 真实启动是 async（lighty 用 tokio）；Tauri command 需显式 runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 
+# M7：微软 refresh_token 存 OS keyring（keystore），accounts.json 不再明文存凭据。
+# 可选 feature `keyring` 启用；未启用或无 D-Bus 会话时回退到 accounts.json 内置存储。
+keyring = { version = "3.6", features = ["sync-secret-service", "apple-native", "windows-native"], optional = true }
+
 [features]
-# M1 骨架无需额外 feature。完整 loaders/auth/java 在 M2 按需开启（default 缺省）
-default = []
+# M7-2：默认启用 OS keyring（微软凭据加密存 Keystore/Credential Manager/Secret Service）。
+# 依赖 D-Bus（Linux）；即便无可用 keyring 会话，代码也会安全回退到 accounts.json 内置存储。
+default = ["keyring"]
+# M7-2：微软凭据存 OS keyring（Keystore/Credential Manager/Secret Service）
+keyring = ["dep:keyring", "lighty-auth/keyring"]
 
 [profile.release]
 codegen-units = 1

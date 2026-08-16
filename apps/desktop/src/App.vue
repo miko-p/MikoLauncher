@@ -10,6 +10,7 @@
         <router-link to="/download">下载</router-link>
         <router-link to="/instances">实例</router-link>
         <router-link to="/accounts">账号</router-link>
+        <router-link to="/plugins">插件</router-link>
       </nav>
     </header>
     <main class="app-main">

@@ -100,4 +100,25 @@ export class InstanceManagerService extends Service {
     const info = this.db.raw.prepare('DELETE FROM instances WHERE id = ?').run(id)
     return { removed: info.changes > 0 }
   }
+
+  /**
+   * 绑定/解绑实例关联账号（M7：实例账号绑定持久化）。
+   * `accountId` 传 null/空串 → 解绑（启动时回退离线 Player）。
+   * 返回更新后的实例；不存在返回 { instance: null }。
+   */
+  updateAccount(id: string, accountId: string | null | undefined) {
+    const row = this.db.raw.prepare('SELECT * FROM instances WHERE id = ?').get(id) as
+      | InstanceRow
+      | undefined
+    if (!row) return { instance: null }
+    const bound = accountId && accountId.trim() !== '' ? accountId : null
+    this.db.raw
+      .prepare('UPDATE instances SET account_id = ? WHERE id = ?')
+      .run(bound, id)
+    const updated = rowToInstance({
+      ...row,
+      account_id: bound,
+    } as InstanceRow)
+    return { instance: updated }
+  }
 }

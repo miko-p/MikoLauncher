@@ -6,7 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Instance } from '@miko-launcher/shared'
-import { listInstances, createInstance, launchInstance } from '../api'
+import { listInstances, createInstance, launchInstance, updateInstanceAccount } from '../api'
 
 interface CreatePayload {
   name: string
@@ -59,5 +59,31 @@ export const useInstanceStore = defineStore('instances', () => {
     }
   }
 
-  return { instances, loading, error, sidecarReady, count, fetchInstances, addInstance, launch }
+  /**
+   * 绑定/解绑实例关联账号（M7 持久化）：accountId 传 undefined/null 解绑。
+   * 成功后本地列表同步，下次启动即用实例绑定账号。
+   */
+  async function bindAccount(id: string, accountId?: string | null) {
+    const target = accountId && accountId.trim() !== '' ? accountId : null
+    error.value = null
+    try {
+      const updated = await updateInstanceAccount(id, target)
+      const idx = instances.value.findIndex((i) => i.id === id)
+      if (idx >= 0) instances.value[idx] = updated
+    } catch (e) {
+      error.value = (e as Error).message
+    }
+  }
+
+  return {
+    instances,
+    loading,
+    error,
+    sidecarReady,
+    count,
+    fetchInstances,
+    addInstance,
+    launch,
+    bindAccount,
+  }
 })

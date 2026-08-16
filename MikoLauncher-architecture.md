@@ -277,16 +277,22 @@ plugins:
 - 新增 `account.*` command + `account:device-code` 事件；`instance.launch` 用绑定账号（payload/实例 accountId，回退离线 Player）替代硬编码 Player。
 - 前端账号页（离线/微软登录 + device-code + 删除）+ 实例启动账号下拉。
 
+### M7 — 账号横切 + UI 增强 + Phase 0 插件 ✅ 已完成（见 `docs/M7-status.md`）
+- **实例账号绑定持久化**：`instance.updateAccount` 真实写 SQLite `account_id`；前端下拉直接持久化；启动用实例绑定账号。
+- **微软凭据落 OS keyring**：`core/secrets.rs` + `AccountEntry.keyring`；refresh_token 存 Secret Service/Keychain/Credential Manager（默认 feature），无会话回退 accounts.json；删账号连带清理。
+- **NeoForge 版本精确匹配**：按官方命名 `{minor}.{patch}.` 精确前缀（修 505 误匹配 bug）。
+- **下载页 UI 增强**：类型 tabs + 搜索 + 每版本 loader 下拉建实例。
+- **Phase 0 功能插件装载**：`services/plugin-manager.ts`（hash 校验 + `ctx.plugin()` 走 Cordis）；`plugin.list/enable/disable` + 插件页；示例插件 `demo-greeter`。
+
 ---
 
-## 十三、下一步（M7）
+## 十三、下一步（M8）
 
-M6 已开账号体系（见 `docs/M6-status.md`）。M7 起点（优先级建议）：
-1. **实例账号绑定持久化**：`instance.updateAccount` 把 accountId 真正写入实例（当前启动时临时指定）。
-2. **微软 token 用 OS keyring**（当前 accounts.json 明文；配 lighty-auth `keyring` feature）。
-3. **NeoForge 版本匹配更精确**：改用官方版本列表 API。
-4. **版本/loader 选择 UI 增强**：下载页分组筛选、启动前可选 loader 版本。
-5. **插件化 MVP**：Phase 0 插件装载 + 主题/布局/功能插件走 Cordis（已顺延）。
+M7 已落地：实例账号**持久化绑定**、微软凭据落 **OS keyring**、NeoForge 版本**精确匹配**、下载页 UI 增强、**Phase 0 功能插件装载**（完整见 `docs/M7-status.md`）。M8 起点（优先级建议）：
+1. **主题 / 布局插件**（Phase 0 已覆盖功能插件）：加前端注入点 —— 主题(CSS 变量运行时加载 `theme.css`)、布局(Vue 组件/路由 slot 置换)，走 Cordis 回滚。
+2. **微软静默刷新失败后的重登录 UI**、多账号快捷切换。
+3. **插件管理 UI 完善**：hash 校验失败告警到前端、插件分组/启用状态持久化到 `cordis.yml`-style 配置。
+4. **插件分发演进**：Phase 1 自建仓库 + 内置浏览；Phase 2 签名 + 验签 + 封禁清单（见 §九）。
 
 ---
 

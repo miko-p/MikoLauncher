@@ -9,10 +9,12 @@
 import type { Context } from 'cordis'
 import type { RustBridgeService } from './bridge/rust-bridge.js'
 import type { InstanceManagerService } from './services/instance-manager.js'
+import type { PluginManagerService } from './services/plugin-manager.js'
 
 declare module 'cordis' {
   interface Context {
     rustBridge: RustBridgeService
     instanceManager: InstanceManagerService
+    pluginManager: PluginManagerService
   }
 }
