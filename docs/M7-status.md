@@ -64,3 +64,17 @@ neoforge=21.4.157   // 之前为 21.1.248（误匹配 MC 1.21.1）
 - `apps/desktop/src-tauri/src/core/secrets.rs`、`core/accounts.rs`、`core/launch.rs`、`lib.rs`
 - `apps/desktop/src/views/DownloadView.vue`、`PluginsView.vue`、`InstancesView.vue`、`stores/plugins.ts`
 - `plugins/demo-greeter/`（示例功能插件）
+
+## 安全扫描（ai-sec-scan，2026-08-16）
+
+用 `ai-sec-scan`（AST 启发式）对全仓库扫描，`total 17`（critical 12 / high 4 / medium 1）。**逐条核实后全部为误报，无真实漏洞**：
+
+| 类别 | 数量 | 核实结论 |
+|---|---|---|
+| `SQL_INJECTION` | 11 | 全部用 `better-sqlite3` **参数化预编译** `.prepare(sql).run({bindParams})`（非字符串拼接），且 rust-bridge.ts:32/63/74、builtin-instance.ts:30 根本不是 SQL（是 Map.get / bridge.on），纯 AST 误判 |
+| `PATH_TRAVERSAL` / `UNSAFE_DESERIALIZATION` | 3 | 路径来自 `lighty_core::AppState::data_dir()`（固定应用目录），读取本地自有 accounts.json，非用户可控路径/不可信输入 |
+| `COMMAND_INJECTION` / `FORMAT_STRING` | 2 | `Command::new(bin)` 的 `bin` 来自 `CARGO_MANIFEST_DIR` 编译期常量推导，运行时用户不可控 |
+| `SHELL_INJECTION` | 1 | `db.ts` 的 `raw.exec(...)` 传的是**硬编码** `CREATE TABLE` schema 字符串，非用户输入 |
+
+> 记：AST 启发式对"参数化查询/本地自有数据文件/编译期常量路径"常有误报，需逐条 cross-check 后再判定 clean（见 `ai-code-security-scan` skill）。
+

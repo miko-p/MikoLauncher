@@ -10,6 +10,7 @@
 - **NeoForge 版本精确匹配**：改按官方命名规则的 `{minor}.{patch}.` 精确前缀（修掉误匹配其它 MC patch 的 bug）
 - **下载页 UI 增强**：类型分组 tabs + 关键字搜索 + 每版本 loader 下拉「以此版本创建实例」
 - **Phase 0 功能插件装载**：`plugins/*/` + hash 校验 + `ctx.plugin()` 走 Cordis（空间可组合注入 / 时间可组合回滚）；`plugin.list/enable/disable` + 插件页；示例插件 `demo-greeter`
+- **安全扫描**：`ai-sec-scan` 全仓库 17 项告警逐条核实**全部为误报**（参数化 SQL / 非 SQL 行 / 固定路径），无真实漏洞，详见 `docs/M7-status.md`
 
 ### 计划中（M8）
 - 主题 / 布局插件（需前端注入点）
