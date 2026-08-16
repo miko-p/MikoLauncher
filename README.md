@@ -17,7 +17,7 @@
 
 一个用 **Rust + Vue + Cordis** 写的 Minecraft（Java 版）启动器。
 
-它的主要方向是，在启动器里引入基于 **Cordis**「时空可组合」范式的前后端分离架构 —— 前端负责界面，Rust 内核负责真实的下载与启动，中间用 Cordis 插件宿主连接 —— 让代码结构更清楚一些，也让主题、布局、功能将来能以插件形式插拔（卸载时 `ctx.effect` 自动回滚）。
+它的主要方向是，在启动器里引入基于 **Cordis**「时空可组合」范式的前后端分离架构 —— 前端负责界面，Rust 内核负责真实的下载与启动，中间用 Cordis 插件宿主连接 —— 让代码结构更清楚一些，也让功能、主题、布局能以插件形式插拔（卸载时 `ctx.effect` 自动回滚）。目前**功能插件**已可装载运行，主题 / 布局插件仍在成形。
 
 目前还在**逐步演进**中：安装、下载、启动、多加载器、账号等基础能力已联通，插件体系还在成形。欢迎一起把它做得更好。
 
@@ -56,10 +56,10 @@
 - 🌐 **真实版本清单**：从 Mojang 拉取，并解析每个版本的 Java 需求
 - 📥 **真实下载 / 安装**：JRE、客户端、库、资源 — 进度实时回传（`download:progress` 事件）
 - 🚀 **真实启动 JVM**：完整 lighty-launch pipeline，真正拉起游戏窗口
-- 🔧 **多加载器**：vanilla / fabric / quilt / neoforge / forge，启动前自动解析精确 loader 版本
-- 👤 **账号体系**：离线账号 + **微软设备流认证**（OAuth），账号本地持久化，实例绑定账号启动
-- 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活）
-- 🧩 **插件范式（演进中）**：Cordis 骨架就绪，主题 / 布局 / 功能插件走 `ctx.effect` 回滚
+- 🔧 **多加载器**：vanilla / fabric / quilt / neoforge / forge，启动前自动解析精确 loader 版本（NeoForge 按官方命名 `{minor}.{patch}.` 精确匹配）
+- 👤 **账号体系**：离线账号 + **微软设备流认证**（OAuth），微软 refresh_token 落 **OS keyring**（Secret Service / Keychain / 凭据管理器），账号本地持久化，实例**绑定账号启动**
+- 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活），实例账号绑定一键持久化
+- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`）。主题 / 布局插件仍在成形，路线见 M8。
 
 > 每个里程碑的交付、验证、踩坑都记录在 [`docs/`](docs/) 下的 `M*-status.md`，完整技术决策见 [`MikoLauncher-architecture.md`](MikoLauncher-architecture.md)。
 
@@ -80,7 +80,7 @@ pnpm run build
 pnpm dev:desktop
 ```
 
-> 选项：`pnpm dev:host` 单独跑插件宿主；`cargo run -- --self-check`（在 `apps/desktop/src-tauri`）跑 Rust 内核自检（清单 / loader 版本 / 账号 / sidecar 往返）。
+> 选项：`pnpm dev:host` 单独跑插件宿主；`cargo run -- --self-check`（在 `apps/desktop/src-tauri`）跑 Rust 内核自检（清单 / loader 版本 / 账号 / keyring / 插件装载 / sidecar 往返）。
 
 **微软账号登录**需先注册 Azure AD 公共客户端应用并获得 Mojang 批准，然后以环境变量提供 client_id：
 
@@ -99,13 +99,13 @@ MikoLauncher/
 ├─ apps/
 │  ├─ desktop/            # Tauri 应用壳（Vue3 前端 + Rust 内核）
 │  │  ├─ src/             #   Vue3 前端（views / stores / api / router）
-│  │  └─ src-tauri/src/   #   Rust 内核（core/launch · core/accounts · core/sidecar）
-│  └─ plugin-host/        # Node sidecar（Cordis 插件宿主）
+│  │  └─ src-tauri/src/   #   Rust 内核（core/launch · accounts · secrets · sidecar）
+│  └─ plugin-host/        # Node sidecar（Cordis 插件宿主 · PluginManager）
 ├─ packages/
 │  └─ shared/             # Rust↔TS 共享 Zod 契约（Single Source of Truth）
-├─ plugins/               # 用户插件装载目录（Phase 0）
+├─ plugins/               # 用户插件装载目录（Phase 0，含示例 demo-greeter）
 ├─ poc/                   # 早期概念验证脚本
-└─ docs/                  # 各里程碑 M1-M6 交付/验证/踩坑
+└─ docs/                  # 各里程碑 M1-M7 交付/验证/踩坑
 ```
 
 ---
@@ -118,7 +118,8 @@ MikoLauncher/
 - **M4** — 真实启动：lighty pipeline 真启 JVM · 真实进度 · java_major ✅
 - **M5** — 前端接真实进度 · 具体 loader 版本解析 ✅
 - **M6** — 账号体系 + 微软认证 ✅
-- **M7** — 实例账号绑定持久化 · keyring 存 token · 版本/loader 选择 UI · 插件化 MVP ⏳
+- **M7** — 实例账号绑定持久化 · keyring 存微软 token · NeoForge 版本精确匹配 · 下载页 UI 增强 · Phase 0 功能插件装载 ✅
+- **M8** — 主题 / 布局插件 · 微软静默刷新重登录 UI · 插件管理 UI 完善（规划中）
 
 ---
 
