@@ -13,8 +13,7 @@
 //! `AccountEntry.keyring == true` 时，refresh_token 从 keyring 读，accounts.json
 //! 里不存明文（写时空串）。
 
-/// 读取刷新令牌。返回 `(bytes, had_keyring)`：
-/// had_keyring=true 表示存在 keyring 条目可供删除。
+/// 从 OS keyring 读取刷新令牌（按账号 id 定位条目）。无条目返回 Ok(None)。
 #[cfg(feature = "keyring")]
 fn entry(account_id: &str) -> Result<::keyring::Entry, String> {
     const SERVICE: &str = "miko-launcher:ms-refresh";

@@ -571,6 +571,11 @@ pub fn self_check() -> String {
         Ok(d) => d,
         Err(e) => return format!("{report}[self-check] instance.create 失败: {e}"),
     };
+    // 自检写出的测试实例用完即删，避免每次 `--self-check` 往库里堆积 SelfCheckSMP 残留
+    let created_id = created["instance"]["id"].as_str().map(|s| s.to_string());
+    if let Some(cid) = &created_id {
+        let _ = sidecar.call("instance.remove", serde_json::json!({ "id": cid }));
+    }
 
     // 3) 读：list 应能看到刚创建的实例
     let list2 = match sidecar.call("instance.list", serde_json::json!({})) {

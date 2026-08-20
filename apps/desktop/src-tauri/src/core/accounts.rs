@@ -6,7 +6,9 @@
 //!   - 微软账号：OAuth 设备流登录（device code 推给前端），存 refresh_token 供静默刷新
 //!   - 为 launch 提供凭据（launch 时离线直发 OfflineAuth / 微软走 refresh 静默刷新）
 //!
-//! 安全：账号 token 存本机 accounts.json（明文）。M7 升级为 OS keyring。
+//! 安全（M7-2）：微软 refresh_token 优先存 OS keyring（Secret Service/Keychain/Credential Manager），
+//!   accounts.json 不落明文；仅在未启用 keyring feature 或无可用 keyring 会话时回退到该文件。
+//!   账号文件本身权限收紧为 0600。access_token（短期有效）/xuid 等非长期凭据仍存于该文件。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -152,7 +154,19 @@ impl AccountStore {
             let guard = self.inner.lock().unwrap();
             serde_json::to_string_pretty(&*guard).map_err(|e| format!("序列化账号失败: {e}"))?
         };
-        std::fs::write(&self.path, data).map_err(|e| format!("写入账号文件失败: {e}"))
+        std::fs::write(&self.path, data).map_err(|e| format!("写入账号文件失败: {e}"))?;
+        // 凭据文件仅当前用户可读写（本机其他用户不可读）。
+        #[cfg(unix)]
+        self.restrict_file_permissions();
+        Ok(())
+    }
+
+    /// 把账号文件权限收紧为 0600（仅 owner 可读写）。
+    /// macOS/Linux 下 accounts.json 含账号凭据，不应允许本机其他用户读取。
+    #[cfg(unix)]
+    fn restrict_file_permissions(&self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600));
     }
 
     /// 全部账号（按最后使用时间倒序），转公开 JSON 数组。
@@ -209,21 +223,10 @@ impl AccountStore {
     }
 }
 
-// 轻量当前时间戳（避免引 chrono；格式近似 ISO8601）
+// 当前 UTC 时间戳（ISO8601，毫秒精度；用 chrono 保证真实年月日，供排序与展示。）
 fn chrono_now() -> String {
-    // 用系统时间格式化为 YYYY-MM-DDTHH:MM:SS.fffZ
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = ms.as_secs();
-    let millis = ms.subsec_millis();
-    let d = secs / 86400;
-    let h = (secs % 86400) / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
-    // 粗略把天数换算成年月日（对齐 UTC）。为简单用自 1970 的天数近似。
-    // （实用足够：主要给排序用）
-    format!("{d:04}-{h:02}-{m:02}T{s:02}:{millis:03}Z")
+    use chrono::{SecondsFormat, Utc};
+    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 /// 创建离线账号（返回账号条目；不落盘，调用方决定 upsert）。
@@ -362,4 +365,26 @@ fn ref_to_string(s: &Option<SecretString>) -> String {
 }
 fn token_to_string(s: &Option<SecretString>) -> String {
     s.as_ref().map(|x| x.expose_secret().to_string()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chrono_now;
+
+    #[test]
+    fn chrono_now_is_valid_iso8601_utc() {
+        let s = chrono_now();
+        let b = s.as_bytes();
+        // YYYY-MM-DDTHH:MM:SS.mmmZ（至少 24 字符）
+        assert!(s.len() >= 24, "date too short: {s}");
+        assert_eq!(b[4], b'-', "year-month sep");
+        assert_eq!(b[7], b'-', "month-day sep");
+        assert_eq!(b[10], b'T', "date-time sep");
+        assert_eq!(b[13], b':', "hour-minute sep");
+        assert_eq!(b[16], b':', "minute-second sep");
+        assert!(s.ends_with('Z'), "should be UTC (Z suffix): {s}");
+        // 年份应是公历合理范围（而非自 1970 的天数这类伪日期）
+        let year: i32 = s[0..4].parse().expect("4-digit year");
+        assert!((2000..2100).contains(&year), "year out of range: {year}");
+    }
 }

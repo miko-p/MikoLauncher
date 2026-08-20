@@ -2456,6 +2456,7 @@ dependencies = [
 name = "miko-launcher"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "keyring",
  "lighty-auth",
  "lighty-core",

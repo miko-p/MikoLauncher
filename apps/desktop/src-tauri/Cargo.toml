@@ -38,6 +38,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 # 可选 feature `keyring` 启用；未启用或无 D-Bus 会话时回退到 accounts.json 内置存储。
 keyring = { version = "3.6", features = ["sync-secret-service", "apple-native", "windows-native"], optional = true }
 
+# 账号 last_used / 时间戳：统一用 chrono 生成正确 ISO8601（避免手写伪日期）。
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
 [features]
 # M7-2：默认启用 OS keyring（微软凭据加密存 Keystore/Credential Manager/Secret Service）。
 # 依赖 D-Bus（Linux）；即便无可用 keyring 会话，代码也会安全回退到 accounts.json 内置存储。

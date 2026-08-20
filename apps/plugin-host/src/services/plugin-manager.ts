@@ -135,12 +135,13 @@ export class PluginManagerService extends Service {
   }
 
   /** 加载单个插件（hash 通过才装载）。重复对同一 name 加载是幂等。 */
-  async enable(name: string): Promise<PluginRuntimeInfo> {
+  async enable(name: string, pre?: PluginRuntimeInfo): Promise<PluginRuntimeInfo> {
     const existing = this.pending.get(name)
     if (existing?.fiber) {
       return { name, version: existing.manifest.version, dir: existing.dir, loaded: true, hashOk: true }
     }
-    const info = this.discover().find((i) => i.name === name)
+    // 复用已 discover 的信息（loadAll 批量时避免对每个插件重复整目录扫描）
+    const info = pre ?? this.discover().find((i) => i.name === name)
     if (!info) return { name, version: '?', dir: '', loaded: false, hashOk: false, reason: '未找到插件' }
     if (!info.hashOk) return { ...info, loaded: false, reason: info.reason ?? 'hash 校验失败' }
 
@@ -187,7 +188,7 @@ export class PluginManagerService extends Service {
     this.started = true
     const results: PluginRuntimeInfo[] = []
     for (const info of this.discover()) {
-      if (info.hashOk) results.push(await this.enable(info.name))
+      if (info.hashOk) results.push(await this.enable(info.name, info))
       else results.push(info)
     }
     return results

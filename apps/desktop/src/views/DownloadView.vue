@@ -13,7 +13,12 @@ const simulating = ref(false)
 const activeTab = ref<'all' | 'release' | 'snapshot'>('all')
 const keyword = ref('')
 const creating = ref<string | null>(null)
-const createLoader = reactive<Record<string, string>>({})
+
+/** 下载页可选 loader（与 addInstance 的 CreatePayload.modLoader 联合类型一致）。 */
+type LoaderId = 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge'
+const createLoader = reactive<Record<string, LoaderId>>({})
+/** 每行下拉默认选中的 loader（与 <select> 首个 option 一致）。 */
+const DEFAULT_LOADER: LoaderId = 'vanilla'
 let unlisten: (() => void) | undefined
 
 const typeLabel = (t: string) => (t === 'release' ? '正式版' : t === 'snapshot' ? '快照' : t)
@@ -48,14 +53,15 @@ const filteredVersions = computed(() => {
   return list.slice(0, 60)
 })
 
-/** M7-4：以选中版本 + 可选 loader 直接创建实例（预选 loader，落到实例页）。 */
-async function quickCreate(versionId: string, defaultLoader: string) {
-  const name = defaultLoader === 'vanilla' ? versionId : `${defaultLoader}-${versionId}`
+/** M7-4：以选中版本 + 可选 loader 直接创建实例（默认 vanilla，落到实例页）。 */
+async function quickCreate(versionId: string) {
+  const loader = createLoader[versionId] || DEFAULT_LOADER
+  const name = loader === 'vanilla' ? versionId : `${loader}-${versionId}`
   creating.value = versionId
   await imStore.addInstance({
     name,
     versionId,
-    modLoader: (createLoader[versionId] || defaultLoader) as any,
+    modLoader: loader,
   })
   creating.value = null
 }
@@ -121,7 +127,7 @@ onUnmounted(() => unlisten?.())
           <button
             class="create"
             :disabled="creating === v.id"
-            @click="quickCreate(v.id, createLoader[v.id] || 'fabric')"
+            @click="quickCreate(v.id)"
           >
             {{ creating === v.id ? '创建中…' : '以此版本创建实例' }}
           </button>
