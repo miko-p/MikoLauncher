@@ -30,9 +30,30 @@ pub struct AppState {
     pub sidecar: crate::core::sidecar::SyncSidecar,
 }
 
-/// 定位 plugin-host 源码并返回其启动所需的 (cwd, tsx-bin, 入口脚本)。
-/// 路径以 `CARGO_MANIFEST_DIR`（= .../apps/desktop/src-tauri）向上推导到 repo 根。
-fn resolve_plugin_host() -> (String, String, String) {
+/// 定位 plugin-host sidecar 的启动项，返回 `(cwd, bin, args)`。
+///
+/// 两层优先级：
+/// 1. **打包版（生产 externalBin）**：`current_exe()` 同目录下找 `plugin-host`
+///    （Tauri 会把 `bundle.externalBin` 声明的 sidecar 与主程序放到同一可执行目录）。
+///    此时 bin = 该二进制，args = 空。
+/// 2. **dev（源码运行）**：无 companion 二进制时，回退到 `CARGO_MANIFEST_DIR`
+///    向上推导 repo 根的 `apps/plugin-host/node_modules/.bin/tsx` 启动 `src/main.ts`。
+fn resolve_plugin_host() -> (String, String, Vec<String>) {
+    // 打包环境：externalBin 与主程序同目录（Linux/macOS，Tauri relative_command_path 逻辑）。
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("plugin-host")))
+        .filter(|p| p.exists());
+    if let Some(bin) = bundled {
+        let cwd = bin.parent().unwrap_or(std::path::Path::new("."));
+        return (
+            cwd.to_str().unwrap_or(".").to_string(),
+            bin.to_str().expect("plugin-host bin utf8").to_string(),
+            Vec::new(),
+        );
+    }
+
+    // dev 环境：本地 tsx 跑 plugin-host 源码。
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent() // apps/desktop
         .and_then(|p| p.parent()) // apps
@@ -44,7 +65,7 @@ fn resolve_plugin_host() -> (String, String, String) {
     (
         host_dir.to_str().expect("host_dir utf8").to_string(),
         tsx_bin.to_str().expect("tsx_bin utf8").to_string(),
-        entry.to_str().expect("entry utf8").to_string(),
+        vec![entry.to_str().expect("entry utf8").to_string()],
     )
 }
 
@@ -313,10 +334,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            // 定位 plugin-host，用本地 tsx 启动常驻 sidecar。
-            let (host_dir, tsx_bin, entry) = resolve_plugin_host();
+            // 定位 plugin-host：优先打包的 externalBin 二进制，dev 回退本地 tsx。
+            let (host_cwd, host_bin, host_args) = resolve_plugin_host();
+            let args_refs: Vec<&str> = host_args.iter().map(|s| s.as_str()).collect();
             let app_state =
-                match crate::core::sidecar::SyncSidecar::start(&host_dir, &tsx_bin, &[&entry]) {
+                match crate::core::sidecar::SyncSidecar::start(&host_cwd, &host_bin, &args_refs) {
                     Ok(s) => s,
                     Err(e) => {
                         // sidecar 启动失败不应使应用崩溃：降级为可用占位，返回明确错误。
@@ -522,11 +544,13 @@ pub fn self_check() -> String {
         }
     }
 
-    let (host_dir, tsx_bin, entry) = resolve_plugin_host();
-    let sidecar = match crate::core::sidecar::SyncSidecar::start(&host_dir, &tsx_bin, &[&entry]) {
-        Ok(s) => s,
-        Err(e) => return format!("{report}[self-check] 无法启动 sidecar: {e}"),
-    };
+    let (host_cwd, host_bin, host_args) = resolve_plugin_host();
+    let args_refs: Vec<&str> = host_args.iter().map(|s| s.as_str()).collect();
+    let sidecar =
+        match crate::core::sidecar::SyncSidecar::start(&host_cwd, &host_bin, &args_refs) {
+            Ok(s) => s,
+            Err(e) => return format!("{report}[self-check] 无法启动 sidecar: {e}"),
+        };
 
     // ⑧ Phase0 插件装载（M7-5）：经 sidecar plugin.list 验证 plugins/ 目录里的插件已被 Cordis 装载
     match sidecar.call("plugin.list", serde_json::json!({})) {
