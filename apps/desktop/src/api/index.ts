@@ -15,8 +15,10 @@ import {
   accountLoginOfflineDataSchema,
   accountLoginMicrosoftDataSchema,
   accountRemoveDataSchema,
+  uiGetManifestDataSchema,
   type Instance,
   type Account,
+  type UiManifest,
 } from '@miko-launcher/shared'
 
 /** invoke 的强类型返回：失败时抛 Error(带 message)。 */
@@ -123,4 +125,10 @@ export async function enablePlugin(name: string) {
 export async function disablePlugin(name: string): Promise<boolean> {
   const data = await call<{ disabled: boolean }>('plugin_disable', { payload: { name } })
   return data.disabled
+}
+
+/** ui.getManifest —— 拉取当前生效的主题 + 布局贡献（M8-1）。 */
+export async function getUiManifest(): Promise<UiManifest> {
+  const data = await call<UiManifest>('ui_get_manifest', {})
+  return uiGetManifestDataSchema.parse(data)
 }

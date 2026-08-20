@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod'
-import { AccountSchema, InstanceSchema } from './entities.js'
+import { AccountSchema, InstanceSchema, UiManifestSchema } from './entities.js'
 
 /* ------------------------------------------------------------------ *
  *  方法名表（注册点）                                                  *
@@ -26,6 +26,7 @@ export const Method = {
   accountLoginOffline: 'account.loginOffline',
   accountLoginMicrosoft: 'account.loginMicrosoft',
   accountRemove: 'account.remove',
+  uiGetManifest: 'ui.getManifest',
 } as const
 
 export type MethodName = (typeof Method)[keyof typeof Method]
@@ -177,6 +178,17 @@ export const accountRemoveDataSchema = z.object({
 })
 
 /* ------------------------------------------------------------------ *
+ *  ui.getManifest（M8-1 主题/布局插件）                                *
+ *  前端拉取当前生效的 UI 贡献（active theme + per-slot layouts）。      *
+ * ------------------------------------------------------------------ */
+
+export const uiGetManifestParamsSchema = z.object({}).nullable().optional()
+
+export const uiGetManifestDataSchema = UiManifestSchema
+
+export type UiGetManifestData = z.infer<typeof uiGetManifestDataSchema>
+
+/* ------------------------------------------------------------------ *
  *  微软登录事件（device code 提示，Rust → 前端）                         *
  * ------------------------------------------------------------------ */
 
@@ -262,6 +274,10 @@ export const methodRegistry = {
   [Method.accountRemove]: {
     params: accountRemoveParamsSchema,
     data: accountRemoveDataSchema,
+  },
+  [Method.uiGetManifest]: {
+    params: uiGetManifestParamsSchema,
+    data: uiGetManifestDataSchema,
   },
 } as const
 

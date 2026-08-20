@@ -19,6 +19,7 @@ import { JsonRpcServer } from './bridge/json-rpc.js'
 import { RustBridgeService } from './bridge/rust-bridge.js'
 import { InstanceManagerService } from './services/instance-manager.js'
 import { PluginManagerService } from './services/plugin-manager.js'
+import { UiRegistryService } from './services/ui-registry.js'
 import * as builtinInstance from './plugins/builtin-instance.js'
 import type { RpcRequest } from './bridge/json-rpc.js'
 
@@ -30,8 +31,9 @@ async function main() {
   const srvFiber = await root.plugin(RustBridgeService)
   await root.plugin(InstanceManagerService)
   const pluginSvc = await root.plugin(PluginManagerService)
+  await root.plugin(UiRegistryService)
   process.stderr.write(
-    `[plugin-host] services mounted: ${ServiceName.instanceManager}, ${ServiceName.rustBridge}, ${ServiceName.pluginManager}\n`,
+    `[plugin-host] services mounted: ${ServiceName.instanceManager}, ${ServiceName.rustBridge}, ${ServiceName.pluginManager}, ${ServiceName.uiRegistry}\n`,
   )
 
   // ── 挂载内置功能插件（复用 M0 验证的 {name,inject,apply} 范式）──
@@ -41,6 +43,8 @@ async function main() {
   // ── M7-5：Phase 0 用户插件装载（plugins/ + hash 校验，走 Cordis）──
   // 先注册 plugin.* RPC（让前端/自检能查/启用/禁用），再装载所有 hash 通过的插件
   root.pluginManager.registerBridge(root.rustBridge)
+  // M8-1：ui.* 契约（theme/layout 贡献）也走 bridge
+  root.uiRegistry.registerBridge(root.rustBridge)
   const loaded = await root.pluginManager.loadAll()
   const okCount = loaded.filter((p) => p.loaded).length
   const badCount = loaded.filter((p) => !p.loaded).length

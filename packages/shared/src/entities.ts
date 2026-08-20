@@ -90,10 +90,50 @@ export const InstanceSchema = z.object({
 
 export type Instance = z.infer<typeof InstanceSchema>
 
+/* ------------------------------------------------------------------ *
+ *  UI 贡献（M8-1 主题/布局插件）                                       *
+ *  侧车 UiRegistryService 把插件的 UI 贡献镜像成轻量契约，前端拉取应用。*
+ * ------------------------------------------------------------------ */
+
+/** 主题插件贡献：一段覆盖 CSS 变量的样式文本（由插件 theme.css 读出） */
+export const UiThemeSchema = z.object({
+  /** 主题名（对应插件 manifest.name，或自定义展示名） */
+  name: z.string(),
+  /** 主题 CSS 内容（覆盖 :root CSS 变量；前端注入到 <style id="plugin-theme">） */
+  css: z.string(),
+})
+
+export type UiTheme = z.infer<typeof UiThemeSchema>
+
+/** 布局插件贡献：往某个 slot 插入一段 HTML（蓝图「十、布局插件」） */
+export const UiLayoutSlotSchema = z.object({
+  /** 插入点 slot 名（如 app-shell / home-widget / footer） */
+  slot: z.string(),
+  /** 布局/组件名 */
+  name: z.string(),
+  /** 渲染到该 slot 的 HTML 内容（前端 v-html 应用） */
+  html: z.string(),
+})
+
+export type UiLayoutSlot = z.infer<typeof UiLayoutSlotSchema>
+
+/** ui.getManifest → 前端要渲染的 UI 贡献（theme 单值 active；layouts 按 slot） */
+export const UiManifestSchema = z.object({
+  /** 当前生效主题（无主题插件时为 null） */
+  theme: UiThemeSchema.nullable(),
+  /** 各 slot 当前生效的布局贡献 */
+  layouts: z.array(UiLayoutSlotSchema),
+})
+
+export type UiManifest = z.infer<typeof UiManifestSchema>
+
 export const entities = {
   Version: VersionSchema,
   Account: AccountSchema,
   Mod: ModSchema,
   Instance: InstanceSchema,
   ModLoader: ModLoaderSchema,
+  UiTheme: UiThemeSchema,
+  UiLayoutSlot: UiLayoutSlotSchema,
+  UiManifest: UiManifestSchema,
 }

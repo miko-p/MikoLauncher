@@ -28,13 +28,17 @@ import { fileURLToPath } from 'node:url'
 import { ServiceName, log } from '../context.js'
 import type { RustBridgeService } from '../bridge/rust-bridge.js'
 
-/** 插件 manifest（蓝图 §九：name/version/api/publisher/hash） */
+/** 插件 manifest（蓝图 §九：name/version/api/publisher/hash；M8-1 增 type/slot） */
 export interface PluginManifest {
   name: string
   version: string
   /** 插件 API 版本；与宿主约定的 API 兼容性级别（当前恒 1） */
   api: number
   publisher?: string
+  /** 插件类型（M8-1）：functional=功能 / theme=主题 / layout=布局。缺省视为 functional */
+  type?: 'functional' | 'theme' | 'layout'
+  /** 布局插件：作用到的 slot 名（type=layout 时可选；用于 UI 层路由） */
+  slot?: string
   /** main.js 的 SHA-256 十六进制，启动校验用 */
   hash: string
 }
@@ -47,6 +51,8 @@ export interface PluginRuntimeInfo {
   loaded: boolean
   hashOk: boolean
   reason?: string
+  /** M8-1：插件类型（缺省 functional） */
+  type?: 'functional' | 'theme' | 'layout'
 }
 
 /** 从 src 向上定位 <repo>/plugins 目录（dev 下即用户插件装载目录） */
@@ -129,6 +135,7 @@ export class PluginManagerService extends Service {
         loaded: this.pending.has(manifest.name),
         hashOk,
         reason,
+        type: manifest.type ?? 'functional',
       })
     }
     return out

@@ -125,6 +125,12 @@ fn plugin_disable(state: tauri::State<'_, AppState>, payload: Value) -> Result<V
     call_sidecar(&state, "plugin.disable", payload)
 }
 
+/// 拉取 UI 贡献（M8-1 主题/布局插件）—— 转发到 sidecar ui.getManifest。
+#[tauri::command]
+fn ui_get_manifest(state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    call_sidecar(&state, "ui.getManifest", json!({}))
+}
+
 /// 启动实例 —— M4：改为 Rust 本地 LaunchAdapter 真实启动（lighty 内核），不再转发 sidecar。
 /// 流程：sidecar `instance.get` 取实例详情 → 本地 lighty pipeline 真实启动
 ///       （Loader 映射 → 安装 lib/JRE/client/assets → spawn JVM）→ 返回 {pid, javaVersion, jvmArgs}。
@@ -367,6 +373,7 @@ pub fn run() {
             plugin_list,
             plugin_enable,
             plugin_disable,
+            ui_get_manifest,
             account_list,
             account_login_offline,
             account_login_microsoft,
@@ -580,6 +587,61 @@ pub fn self_check() -> String {
             ));
         }
         Err(e) => report.push_str(&format!("[self-check] ⑧插件: plugin.list 失败 {e}\n")),
+    }
+
+    // ⑨ UI 贡献（M8-1 主题/布局插件）：加载后 getManifest 断言 theme+layout 存在 →
+    //     disable 主题插件后 theme 应回退为 null → re-enable 应恢复（验证往返 + effect 回滚）。
+    {
+        // 会话开始时（loadAll 已装载 demo-theme + demo-layout），应先断言二者在。
+        // 若插件缺失（如示例被删），不判失败，简要记录即可（自检不应因缺示例插件失败）。
+        // 只有在插件存在时，才做「断言→禁用→断言回退→启用→断言恢复」的往返。
+        let m0 = sidecar
+            .call("ui.getManifest", serde_json::json!({}))
+            .unwrap_or_else(|_| serde_json::json!({}));
+        let theme_in = m0["theme"]["name"].as_str().unwrap_or("").to_string();
+        let slot_names: Vec<String> = m0["layouts"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|l| l["slot"].as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // 断言 layouts 至少含 footer（demo-layout 注入）；theme 若存在则做回滚往返
+        let layout_ok = slot_names.iter().any(|s| s == "footer");
+        let theme_present = !theme_in.is_empty();
+
+        let rollback_note = if theme_present {
+            // a) disable demo-theme → 期望 theme 回退 null
+            let disabled = sidecar
+                .call("plugin.disable", serde_json::json!({ "name": "demo-theme" }))
+                .ok();
+            let gone = sidecar
+                .call("ui.getManifest", serde_json::json!({}))
+                .map(|m| m["theme"].is_null() || m["theme"]["name"].as_str().unwrap_or("").is_empty())
+                .unwrap_or(false);
+            // b) re-enable demo-theme → 期望恢复
+            let _ = sidecar.call("plugin.enable", serde_json::json!({ "name": "demo-theme" }));
+            let restored = sidecar
+                .call("ui.getManifest", serde_json::json!({}))
+                .map(|m| m["theme"]["name"].as_str().unwrap_or("") == "demo-theme")
+                .unwrap_or(false);
+            format!(
+                " 禁用↓={}回退null={} 恢复={}",
+                if disabled.is_some() { "✓" } else { "✗" },
+                if gone { "✓" } else { "✗" },
+                if restored { "✓" } else { "✗" }
+            )
+        } else {
+            "（无主题插件，跳过回滚往返）".to_string()
+        };
+
+        report.push_str(&format!(
+            "[self-check] ⑨UI(M8-1): theme={} layout[footer]={} {}\n",
+            if theme_in.is_empty() { "∅" } else { &theme_in },
+            if layout_ok { "✓" } else { "✗" },
+            rollback_note
+        ));
     }
 
     // 1) 读：list

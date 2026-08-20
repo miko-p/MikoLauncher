@@ -1,0 +1,12 @@
+/* demo-theme —— 覆盖内置主题的同名 CSS 变量即可换肤。
+ * 前端把本内容注入到 <style id="plugin-theme">（置于 head 末尾，覆盖 default.css 的 :root）。 */
+:root {
+  --bg: #1e1230;
+  --bg-elevated: #2a1a44;
+  --text: #efeaff;
+  --text-dim: #b8a8d9;
+  --border: #4a3a6b;
+  --accent: #c792ea;
+  --danger: #ff6b6b;
+  --radius: 12px;
+}

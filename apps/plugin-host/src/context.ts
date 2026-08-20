@@ -17,6 +17,7 @@ export const ServiceName = {
   rustBridge: 'rustBridge',
   instanceManager: 'instanceManager',
   pluginManager: 'pluginManager',
+  uiRegistry: 'uiRegistry',
   downloadService: 'downloadService',
   authService: 'authService',
 } as const
