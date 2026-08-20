@@ -4,6 +4,11 @@
 
 ## [未发布]
 
+### M8 已添加
+- **主题 / 布局插件（M8-1）**：三类插件补齐主题（CSS 变量运行时加载）+ 布局（slot 注入）。`UiRegistryService`（pull-based 镜像 Cordis 回滚：themeStack 弹栈 + per-slot layouts）、`ui.getManifest` 契约、前端 `App.vue` 注入点 + `stores/ui.ts`、示例插件 `demo-theme`/`demo-layout`；`--self-check ⑨` 全链路过
+- **sidecar 打包骨架（M8-B）**：esbuild 把 sidecar 打成单文件 `dist/main.mjs`（紧凑 cordis/shared，仅 better-sqlite3 原生模块 external）；`resolve_plugin_host()` 双路径（打包 externalBin / dev tsx）；`BUILD-SIDECAR.md` 记录发布 runtime 选型
+- **CSP 安全补丁**：`tauri.conf.json` 从 `csp: null` 收紧为基础策略（`script-src 'self'` 拦内联脚本、`style-src 'unsafe-inline'` 给主题 CSS），为 v-html 引入的必要安全补偿
+
 ### M7 已添加
 - **实例账号绑定持久化**：`instance.updateAccount` 把 accountId 真实写入实例（SQLite），前端下拉直接持久化；启动用实例绑定账号（替代启动时临时指定）
 - **微软凭据落 OS keyring**：refresh_token 存 Secret Service / Keychain / Credential Manager（`keyring` feature 默认开），accounts.json 不再存明文；无 keyring 会话安全回退；删账号连带清理
@@ -12,10 +17,14 @@
 - **Phase 0 功能插件装载**：`plugins/*/` + hash 校验 + `ctx.plugin()` 走 Cordis（空间可组合注入 / 时间可组合回滚）；`plugin.list/enable/disable` + 插件页；示例插件 `demo-greeter`
 - **安全扫描**：`ai-sec-scan` 全仓库 17 项告警逐条核实**全部为误报**（参数化 SQL / 非 SQL 行 / 固定路径），无真实漏洞，详见 `docs/M7-status.md`
 
-### 计划中（M8）
-- 主题 / 布局插件（需前端注入点）
+### M7 已修复
+- **代码审查缺陷修复**：`chrono_now()` 伪日期 → 真 ISO8601（+单测）；accounts.json 写后 `0600`；过时注释更正；DownloadView quickCreate 默认 loader 不一致 + 消 `as any`；plugin-manager 批量加载去重复 `discover` 扫描；清理改名残留旧库 + 自检 create 后即删（不再堆积 `SelfCheckSMP`）
+
+### 计划中（M9）
+- 发布 runtime 选型落地（sidecar 单文件内嵌 / 内置运行时 + resources），跑通 `tauri build` 出安装包
 - 插件市场 / 签名（Phase 1/2）
-- 微软静默刷新失败重登录 UI
+- 微软静默刷新失败重登录 UI、多账号快捷切换
+- 插件管理 UI 完善（hash 失败告警到前端、启用状态持久化）
 
 ---
 

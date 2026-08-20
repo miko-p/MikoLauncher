@@ -284,14 +284,20 @@ plugins:
 - **下载页 UI 增强**：类型 tabs + 搜索 + 每版本 loader 下拉建实例。
 - **Phase 0 功能插件装载**：`services/plugin-manager.ts`（hash 校验 + `ctx.plugin()` 走 Cordis）；`plugin.list/enable/disable` + 插件页；示例插件 `demo-greeter`。
 
+### M8 — 主题/布局插件 + 打包骨架 + 修复（进行中，见 `docs/M8-status.md`）
+- **主题/布局插件（M8-1）**：兑现蓝图「三类插件」—— 主题（CSS 变量运行时加载）+ 布局（slot 注入）。`UiRegistryService`（pull-based 镜像 Cordis 回滚：themeStack 弹栈 + per-slot layouts）；`ui.getManifest` 契约；前端 `App.vue` 注入点 + `stores/ui.ts`；示例 `demo-theme` / `demo-layout`；自检 ⑨ 全链路过。
+- **sidecar 打包骨架（M8-B）**：esbuild 把 sidecar 打成单文件 `dist/main.mjs`（紧凑 cordis/shared，仅 better-sqlite3 external）；`resolve_plugin_host()` 双路径（打包 externalBin / dev tsx）；发布 runtime 选型待定（`BUILD-SIDECAR.md`）。
+- **CSP 补丁**：`security.csp` 从 `null` 收紧为基础策略（script-src 'self' 拦内联脚本；style-src 'unsafe-inline' 给主题 CSS），为 v-html 的安全补偿。
+- **审查修复**：`chrono_now()` 伪日期→真 ISO8601（+单测）；accounts.json `0600`；过时注释；DownloadView loader 不一致；plugin-manager 去重复扫描；自检不再堆积实例 + 清旧库。
+
 ---
 
-## 十三、下一步（M8）
+## 十三、下一步（M9）
 
-M7 已落地：实例账号**持久化绑定**、微软凭据落 **OS keyring**、NeoForge 版本**精确匹配**、下载页 UI 增强、**Phase 0 功能插件装载**（完整见 `docs/M7-status.md`）。M8 起点（优先级建议）：
-1. **主题 / 布局插件**（Phase 0 已覆盖功能插件）：加前端注入点 —— 主题(CSS 变量运行时加载 `theme.css`)、布局(Vue 组件/路由 slot 置换)，走 Cordis 回滚。
-2. **微软静默刷新失败后的重登录 UI**、多账号快捷切换。
-3. **插件管理 UI 完善**：hash 校验失败告警到前端、插件分组/启用状态持久化到 `cordis.yml`-style 配置。
+M8 已落地：**主题/布局插件**、**sidecar 打包骨架**、**CSP 补丁** 与一批审查修复（完整见 `docs/M8-status.md`）。M9 起点（优先级建议）：
+1. **发布 runtime 选型落地**（M8-B 收尾）：定 pkg/bun 内嵌 Node 单文件 或 内置运行时+resources，启用 `externalBin` 并跑通 `tauri build` 产出安装包。
+2. **微软静默刷新失败后的重登录 UI**、多账号快捷切换（M6 遗留）。
+3. **插件管理 UI 完善**：hash 校验失败告警推到前端、插件启用状态持久化到 `cordis.yml`-style 配置。
 4. **插件分发演进**：Phase 1 自建仓库 + 内置浏览；Phase 2 签名 + 验签 + 封禁清单（见 §九）。
 
 ---
