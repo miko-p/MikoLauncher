@@ -59,7 +59,7 @@
 - 🔧 **多加载器**：vanilla / fabric / quilt / neoforge / forge，启动前自动解析精确 loader 版本（NeoForge 按官方命名 `{minor}.{patch}.` 精确匹配）
 - 👤 **账号体系**：离线账号 + **微软设备流认证**（OAuth），微软 refresh_token 落 **OS keyring**（Secret Service / Keychain / 凭据管理器），账号本地持久化，实例**绑定账号启动**
 - 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活），实例账号绑定一键持久化
-- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`）。主题 / 布局插件仍在成形，路线见 M8。
+- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）。主题 / 布局插件仍在成形，路线见 M8/M9。
 
 > 每个里程碑的交付、验证、踩坑都记录在 [`docs/`](docs/) 下的 `M*-status.md`，完整技术决策见 [`MikoLauncher-architecture.md`](MikoLauncher-architecture.md)。
 
@@ -120,7 +120,7 @@ MikoLauncher/
 - **M6** — 账号体系 + 微软认证 ✅
 - **M7** — 实例账号绑定持久化 · keyring 存微软 token · NeoForge 版本精确匹配 · 下载页 UI 增强 · Phase 0 功能插件装载 ✅
 - **M8** — 主题 / 布局插件 ✅
-- **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 发布 runtime 选型 · 插件管理完善 · 插件分发演进（进行中）
+- **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 插件启用状态持久化（M9-3 ✅）· 发布 runtime 选型 · 插件分发演进（进行中）
 
 ---
 

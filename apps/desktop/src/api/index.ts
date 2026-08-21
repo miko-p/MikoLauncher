@@ -122,10 +122,24 @@ export async function refreshAccount(id: string): Promise<{
 
 /** plugin.list —— Phase0 插件列表（M7-5）。 */
 export async function listPlugins(): Promise<
-  { name: string; version: string; loaded: boolean; hashOk: boolean; reason?: string }[]
+  {
+    name: string
+    version: string
+    loaded: boolean
+    hashOk: boolean
+    reason?: string
+    /** M9-3：持久化的期望启用状态（重启后仍保持） */
+    enabled?: boolean
+  }[]
 > {
   const data = await call<{ plugins: never[] }>('plugin_list')
-  return (data.plugins ?? []) as { name: string; version: string; loaded: boolean; hashOk: boolean }[]
+  return (data.plugins ?? []) as {
+    name: string
+    version: string
+    loaded: boolean
+    hashOk: boolean
+    enabled?: boolean
+  }[]
 }
 
 /** plugin.enable —— 启用插件（M7-5）。 */

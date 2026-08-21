@@ -13,6 +13,8 @@ export interface PluginInfo {
   loaded: boolean
   hashOk: boolean
   reason?: string
+  /** M9-3：持久化的期望启用状态（重启后仍保持；缺省视为启用） */
+  enabled?: boolean
 }
 
 export const usePluginStore = defineStore('plugins', () => {

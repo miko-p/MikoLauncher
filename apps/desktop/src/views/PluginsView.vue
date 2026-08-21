@@ -40,6 +40,14 @@ onMounted(() => store.fetchPlugins())
             <span class="tag" :class="p.loaded ? 'ok' : 'off'">
               {{ p.loaded ? '已装载' : '未装载' }}
             </span>
+            <!-- M9-3：持久化期望状态（重启后保持） -->
+            <span
+              class="tag"
+              :class="p.enabled !== false ? 'ok' : 'off'"
+              :title="p.enabled !== false ? '运行中保持启用；可在下方停用并持久化' : '已停用并持久化；重启后仍不自动装载'"
+            >
+              {{ p.enabled !== false ? '启用' : '已停用' }}
+            </span>
             <span class="tag" :class="p.hashOk ? 'ok' : 'bad'">
               {{ p.hashOk ? 'hash✓' : 'hash✗' }}
             </span>

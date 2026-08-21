@@ -5,6 +5,8 @@
 ## [未发布]
 
 ### M9 已添加
+- **插件启用状态持久化（M9-3）**：`plugin-manager` 新增 `plugin-state.json` 启用状态落盘（缺省全启用）——`enable/disable` 持久化期望状态，`loadAll` 按状态选择性装载（禁用插件重启后不自动加载）；`plugin.list` 返回 `enabled` 字段，前端插件页展示「启用/已停用」徽标 + hover 说明；重启状态保持已用 dev tsx 与生产 bundle 双路径验证。
+- **修复 M8-B bundle 路径错位**：`resolveHostRoot()` 兼容 dev（`src/services`）与 bundle（`dist`）两种 `import.meta.url` 形态，修掉生产 bundle 扫不到 `plugins/`、数据目录落到错误路径的潜在缺陷。
 - **微软静默刷新失败重登 UI（M9-2）**：`account.refresh` 契约（`needsReauth` 信号）+ Rust `account_refresh` command —— 对指定微软账号显式静默刷新，区分「凭据仍有效」/「已失效需重新登录」（离线账号恒有效）；前端账号页挂载时自动检测各微软账号，失效时醒目「需重新登录」标记 + 失效原因 + 重新登录入口（走设备流），并提供手动「检查」按钮；`--self-check ⑩` 全链路验证 + Rust 单测。
 - **Microsoft 账号失效检测**：`accounts.rs` 新增 `refresh_microsoft_account()`（只读检测，不改持久化），单测覆盖「离线恒有效/不存在报错」。
 

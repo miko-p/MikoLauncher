@@ -21,7 +21,13 @@
  */
 
 import { Service } from 'cordis'
-import { readdirSync, existsSync, readFileSync } from 'node:fs'
+import {
+  readdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -53,14 +59,44 @@ export interface PluginRuntimeInfo {
   reason?: string
   /** M8-1：插件类型（缺省 functional） */
   type?: 'functional' | 'theme' | 'layout'
+  /** M9-3：持久化的启用状态（期望状态；缺省视为启用）。loaded≠enabled 表示待启停 */
+  enabled: boolean
 }
 
-/** 从 src 向上定位 <repo>/plugins 目录（dev 下即用户插件装载目录） */
+/** 启用状态配置文件结构：`{ "enabled": { "插件名": true/false } }`。缺省视为启用。 */
+interface PluginStateFile {
+  enabled: Record<string, boolean>
+}
+
+/** 从 src 向上定位 <repo>/plugins 目录（dev 下即用户插件装载目录）。 */
 function defaultPluginsDir(): string {
+  const hostRoot = resolveHostRoot()
+  // <repo>/plugins —— plugin-host 位于 apps/plugin-host，repo root = hostRoot/../..
+  return join(hostRoot, '..', '..', 'plugins')
+}
+
+/** 数据目录（启用状态文件所在）；对齐 db.ts：env 优先，缺省 <plugin-host>/data。 */
+function defaultDataDir(): string {
+  const env = process.env.MC_LAUNCHER_DATA_DIR
+  if (env) return env
+  return join(resolveHostRoot(), 'data')
+}
+
+/**
+ * 定位 <apps/plugin-host> 根目录。
+ *
+ * 兼容两种运行形态：
+ *  - dev（tsx 源码）：`src/services/plugin-manager.ts` → import.meta.url 目录 = src/services，
+ *    向上 2 级 = plugin-host。
+ *  - 生产 bundle（build.mjs 打成 `dist/main.mjs`）：import.meta.url 目录 = dist，
+ *    向上 1 级 = plugin-host。
+ *  （M9-3：修掉 M8-B bundle 下 defaultDataDir/defaultPluginsDir 依 import.meta.url
+ *   固定层级导致的路径错位 —— bundle 解析到错误目录、扫不到 plugins/。）
+ */
+function resolveHostRoot(): string {
   const here = dirname(fileURLToPath(import.meta.url))
-  // src/services → <plugin-host>/src → repo root → plugins
-  const repoRoot = join(here, '..', '..', '..', '..')
-  return join(repoRoot, 'plugins')
+  const isBundle = here.endsWith('dist')
+  return isBundle ? join(here, '..') : join(here, '..', '..')
 }
 
 interface PendingPlugin {
@@ -73,17 +109,62 @@ interface PendingPlugin {
 export class PluginManagerService extends Service {
   /** 插件目录（可用 env MIKO_PLUGINS_DIR 覆盖，便于测试隔离） */
   private readonly pluginsDir: string
+  /** 启用状态配置目录（缺省对齐 db.ts 的 data 目录） */
+  private readonly dataDir: string
+  /** 启用状态（name → enabled）。缺省视为启用。 */
+  private state: Record<string, boolean> = {}
   private pending = new Map<string, PendingPlugin>()
   private started = false
 
   constructor(ctx: any) {
     super(ctx, ServiceName.pluginManager)
     this.pluginsDir = process.env.MIKO_PLUGINS_DIR ?? defaultPluginsDir()
+    this.dataDir = process.env.MC_LAUNCHER_DATA_DIR ?? defaultDataDir()
+    this.state = this.loadState()
     // 卸载服务时：把所有已加载插件 fiber 依次 dispose（时间可组合性全局回滚）
     ctx.effect(() => () => {
       for (const p of [...this.pending.values()]) void p.fiber?.dispose()
       this.pending.clear()
     })
+  }
+
+  // ── 启用状态持久化（M9-3）──────────────────────────────────────────
+  /** 启用状态文件路径：<dataDir>/plugin-state.json。 */
+  private statePath(): string {
+    return join(this.dataDir, 'plugin-state.json')
+  }
+
+  /** 读取启用状态；文件缺失/损坏时按「全部启用」处理（向后兼容）。 */
+  private loadState(): Record<string, boolean> {
+    try {
+      const raw = readFileSync(this.statePath(), 'utf-8')
+      const parsed = JSON.parse(raw) as PluginStateFile
+      return parsed.enabled ?? {}
+    } catch {
+      return {}
+    }
+  }
+
+  /** 落盘当前启用状态（幂等；首次创建目录）。 */
+  private saveState() {
+    try {
+      mkdirSync(this.dataDir, { recursive: true })
+      const out: PluginStateFile = { enabled: this.state }
+      writeFileSync(this.statePath(), JSON.stringify(out, null, 2), 'utf-8')
+    } catch (e) {
+      log(`[plugin-manager] 启用状态写入失败: ${(e as Error).message}`)
+    }
+  }
+
+  /** 某插件的期望启用状态；缺省视为启用。 */
+  private isEnabled(name: string): boolean {
+    return this.state[name] !== false
+  }
+
+  /** 设置期望启用状态并落盘。 */
+  private setEnabled(name: string, enabled: boolean) {
+    this.state[name] = enabled
+    this.saveState()
   }
 
   private sha256(file: string): string {
@@ -108,11 +189,11 @@ export class PluginManagerService extends Service {
       try {
         manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as PluginManifest
       } catch {
-        out.push({ name: dirName.name, version: '?', dir, loaded: false, hashOk: false, reason: 'manifest.json 解析失败' })
+        out.push({ name: dirName.name, version: '?', dir, loaded: false, hashOk: false, reason: 'manifest.json 解析失败', enabled: this.isEnabled(dirName.name) })
         continue
       }
       if (!manifest.name || !manifest.version) {
-        out.push({ name: dirName.name, version: '?', dir, loaded: false, hashOk: false, reason: 'manifest 缺 name/version' })
+        out.push({ name: dirName.name, version: '?', dir, loaded: false, hashOk: false, reason: 'manifest 缺 name/version', enabled: this.isEnabled(dirName.name) })
         continue
       }
 
@@ -136,6 +217,7 @@ export class PluginManagerService extends Service {
         hashOk,
         reason,
         type: manifest.type ?? 'functional',
+        enabled: this.isEnabled(manifest.name),
       })
     }
     return out
@@ -145,12 +227,12 @@ export class PluginManagerService extends Service {
   async enable(name: string, pre?: PluginRuntimeInfo): Promise<PluginRuntimeInfo> {
     const existing = this.pending.get(name)
     if (existing?.fiber) {
-      return { name, version: existing.manifest.version, dir: existing.dir, loaded: true, hashOk: true }
+      return { name, version: existing.manifest.version, dir: existing.dir, loaded: true, hashOk: true, enabled: true }
     }
     // 复用已 discover 的信息（loadAll 批量时避免对每个插件重复整目录扫描）
     const info = pre ?? this.discover().find((i) => i.name === name)
-    if (!info) return { name, version: '?', dir: '', loaded: false, hashOk: false, reason: '未找到插件' }
-    if (!info.hashOk) return { ...info, loaded: false, reason: info.reason ?? 'hash 校验失败' }
+    if (!info) return { name, version: '?', dir: '', loaded: false, hashOk: false, reason: '未找到插件', enabled: this.isEnabled(name) }
+    if (!info.hashOk) return { ...info, loaded: false, reason: info.reason ?? 'hash 校验失败', enabled: true }
 
     const dir = info.dir
     const mainPath = join(dir, 'main.js')
@@ -172,10 +254,10 @@ export class PluginManagerService extends Service {
       }
       this.pending.set(name, { manifest, dir, mainPath, fiber })
       log(`[plugin-manager] 已装载插件「${name}@${manifest.version}」(hash✓)`)
-      return { name, version: manifest.version, dir, loaded: true, hashOk: true }
+      return { name, version: manifest.version, dir, loaded: true, hashOk: true, enabled: true }
     } catch (e) {
       log(`[plugin-manager] 插件「${name}」装载失败: ${(e as Error).message}`)
-      return { name, version: manifest.version, dir, loaded: false, hashOk: true, reason: (e as Error).message }
+      return { name, version: manifest.version, dir, loaded: false, hashOk: true, reason: (e as Error).message, enabled: true }
     }
   }
 
@@ -189,14 +271,21 @@ export class PluginManagerService extends Service {
     return true
   }
 
-  /** 启动时加载当前 `plugins/` 下所有 hash 通过的插件。幂等。 */
+  /** 启动时加载当前 `plugins/` 下所有「启用且 hash 通过」的插件。幂等。 */
   async loadAll(): Promise<PluginRuntimeInfo[]> {
     if (this.started) return this.list()
     this.started = true
     const results: PluginRuntimeInfo[] = []
     for (const info of this.discover()) {
-      if (info.hashOk) results.push(await this.enable(info.name, info))
-      else results.push(info)
+      if (!info.enabled) {
+        // M9-3：明确禁用的插件跳过装载（期望状态 persist 到 plugin-state.json）
+        log(`[plugin-manager] 插件「${info.name}」已禁用，跳过装载`)
+        results.push(info)
+      } else if (info.hashOk) {
+        results.push(await this.enable(info.name, info))
+      } else {
+        results.push(info)
+      }
     }
     return results
   }
@@ -212,9 +301,16 @@ export class PluginManagerService extends Service {
   /** 注册 RPC：plugin.list / plugin.enable / plugin.disable */
   registerBridge(bridge: RustBridgeService) {
     bridge.on('plugin.list', () => ({ plugins: this.list() }))
-    bridge.on('plugin.enable', async (params: { name: string }) => this.enable(params.name))
-    bridge.on('plugin.disable', async (params: { name: string }) => ({
-      disabled: await this.disable(params.name),
-    }))
+    bridge.on('plugin.enable', async (params: { name: string }) => {
+      // M9-3：持久化期望启用状态，再装载
+      this.setEnabled(params.name, true)
+      return this.enable(params.name)
+    })
+    bridge.on('plugin.disable', async (params: { name: string }) => {
+      const disabled = await this.disable(params.name)
+      // M9-3：持久化期望禁用状态（即便当前未装载也记录，重启后保持禁用）
+      this.setEnabled(params.name, false)
+      return { disabled }
+    })
   }
 }
