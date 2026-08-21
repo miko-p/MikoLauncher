@@ -339,6 +339,45 @@ pub async fn identity_to_profile(identity: &AccountIdentity) -> Result<lighty_au
     }
 }
 
+/// **M9-2**：对指定账号显式做一次「刷新/有效性」检测（供前端展示失效并提示重新登录）。
+///
+/// 返回 `(entry, needs_reauth, message)`：
+///   - 离线账号：无 refresh 语义，恒 `(entry, false, None)`。
+///   - 微软账号：读取 refresh_token 静默刷新
+///       - 成功 → `(entry, false, None)`（账号仍有效，可正常启动）
+///       - 失败（令牌已撤销/过期/缺失）→ `(entry, true, Some(原因))`，前端据此走重登流程。
+///
+/// 不修改持久化状态（只读检测；需要写时才由调用方决定 upsert）。
+pub async fn refresh_microsoft_account(
+    store: &AccountStore,
+    account_id: &str,
+) -> Result<(AccountEntry, bool, Option<String>), String> {
+    let entry = store
+        .get(account_id)
+        .ok_or_else(|| format!("账号不存在: {account_id}"))?;
+
+    // 离线账号没有可刷新的凭据，恒有效。
+    if entry.account_type != AccountType::Microsoft {
+        return Ok((entry.clone(), false, None));
+    }
+
+    let identity = entry
+        .to_identity()
+        .map_err(|e| format!("账号身份解析失败: {e}"))?;
+    let AccountIdentity::Microsoft {
+        client_id,
+        refresh_token,
+    } = identity
+    else {
+        unreachable!("微软账号应解析为 Microsoft 身份")
+    };
+
+    match refresh_microsoft_identity(&client_id, &refresh_token).await {
+        Ok(_) => Ok((entry.clone(), false, None)),
+        Err(e) => Ok((entry.clone(), true, Some(e))),
+    }
+}
+
 // util: AccountIdentity 从存储 entry 构建
 impl AccountEntry {
     /// 该账号对应的 launch 身份（微软需 client_id 配置）。
@@ -369,7 +408,7 @@ fn token_to_string(s: &Option<SecretString>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::chrono_now;
+    use super::*;
 
     #[test]
     fn chrono_now_is_valid_iso8601_utc() {
@@ -386,5 +425,33 @@ mod tests {
         // 年份应是公历合理范围（而非自 1970 的天数这类伪日期）
         let year: i32 = s[0..4].parse().expect("4-digit year");
         assert!((2000..2100).contains(&year), "year out of range: {year}");
+    }
+
+    /// M9-2：离线账号在 refresh 检测下应恒「有效」（needs_reauth=false），
+    /// 且能正确区分账号类型；不存在账号则返回错误。
+    #[tokio::test]
+    async fn refresh_offline_account_is_never_reauth() {
+        // 用 temp 路径构造一个隔离的 AccountStore（不污染真实 app data）
+        let dir = std::env::temp_dir().join(format!("miko-acc-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = AccountStore {
+            path: dir.join("accounts.json"),
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        };
+
+        // 不存在账号 → 应报错
+        let err = refresh_microsoft_account(&store, "nope").await.unwrap_err();
+        assert!(err.contains("账号不存在"), "err = {err}");
+
+        // 离线账号 → needs_reauth=false、无 message
+        let entry = create_offline_account("Tester").unwrap();
+        store.upsert(entry.clone()).unwrap();
+        let (got, needs, msg) = refresh_microsoft_account(&store, &entry.id).await.unwrap();
+        assert!(!needs, "离线账号不应需要重登");
+        assert!(msg.is_none(), "离线账号不应有 message");
+        assert_eq!(got.name, "Tester");
+        assert_eq!(got.account_type, AccountType::Offline);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

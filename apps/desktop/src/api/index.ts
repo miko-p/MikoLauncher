@@ -15,6 +15,7 @@ import {
   accountLoginOfflineDataSchema,
   accountLoginMicrosoftDataSchema,
   accountRemoveDataSchema,
+  accountRefreshDataSchema,
   uiGetManifestDataSchema,
   type Instance,
   type Account,
@@ -103,6 +104,20 @@ export async function loginMicrosoft(): Promise<Account> {
 export async function removeAccount(id: string): Promise<boolean> {
   const data = await call<{ removed: boolean }>('account_remove', { payload: { id } })
   return accountRemoveDataSchema.parse(data).removed
+}
+
+/** account.refresh —— 检测指定 Azure/微软账号的 refresh_token 是否仍有效（M9-2）。 */
+export async function refreshAccount(id: string): Promise<{
+  account: Account
+  needsReauth: boolean
+  message?: string
+}> {
+  const data = await call<{
+    account: Account
+    needsReauth: boolean
+    message?: string
+  }>('account_refresh', { payload: { id } })
+  return accountRefreshDataSchema.parse(data)
 }
 
 /** plugin.list —— Phase0 插件列表（M7-5）。 */

@@ -298,6 +298,36 @@ fn account_remove(payload: Value) -> Result<Value, String> {
     Ok(json!({ "removed": removed }))
 }
 
+/// 账号刷新/有效性检测（M9-2）—— 对指定微软账号显式静默刷新，
+/// 区分「凭据仍有效」/「已失效需重新登录」。离线账号恒有效。
+/// 前端据此在账号上显示失效提示 + 重新登录入口。
+#[tauri::command]
+fn account_refresh(payload: Value) -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 id".to_string())?
+        .to_string();
+
+    // rust 端需 tokio runtime（与登录/启动一致的构造方式）
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("tokio runtime for account refresh");
+
+    let store = crate::core::accounts::AccountStore::open()?;
+    let (entry, needs_reauth, message) =
+        rt.block_on(crate::core::accounts::refresh_microsoft_account(&store, &id))?;
+
+    Ok(json!({
+        "account": entry.to_public_json(),
+        "needsReauth": needs_reauth,
+        "message": message,
+    }))
+}
+
 /// 模拟下载进度 —— 骨架用：向前端推送几个 `download:progress` 事件，
 /// 供前端订阅链路（DownloadProgressSchema）验证。M4 起替换为真实下载进度。
 #[tauri::command]
@@ -378,6 +408,7 @@ pub fn run() {
             account_login_offline,
             account_login_microsoft,
             account_remove,
+            account_refresh,
             emit_download_progress,
             greet
         ])
@@ -644,7 +675,41 @@ pub fn self_check() -> String {
         ));
     }
 
-    // 1) 读：list
+    // ⑩ 账号有效性检测（M9-2）：对离线账号显式 check → 应恒「有效」（needsReauth=false）
+    {
+        let store_sel = match crate::core::accounts::AccountStore::open() {
+            Ok(s) => s,
+            Err(e) => {
+                report.push_str(&format!("[self-check] ⑩账号检测(M9-2): 存储打开失败 {e}\n"));
+                return report;
+            }
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .expect("tokio runtime for self-check account refresh");
+        match crate::core::accounts::login_offline(&store_sel, "SelfCheckReauth") {
+            Ok(acct) => {
+                let (_, needs, msg) =
+                    rt.block_on(crate::core::accounts::refresh_microsoft_account(
+                        &store_sel,
+                        &acct.id,
+                    ))
+                    .unwrap_or_else(|e| (acct.clone(), true, Some(format!("检测失败: {e}"))));
+                report.push_str(&format!(
+                    "[self-check] ⑩账号检测(M9-2): 离线 {} needsReauth={} {}\n",
+                    acct.name,
+                    if needs { "✗需要重登" } else { "✓有效" },
+                    if let Some(m) = msg { format!("({m})") } else { String::new() }
+                ));
+                let _ = store_sel.remove(&acct.id);
+            }
+            Err(e) => report.push_str(&format!("[self-check] ⑩账号检测(M9-2): 登录失败 {e}\n")),
+        }
+    }
+
+    // ① 读：list
     let list1 = match sidecar.call("instance.list", serde_json::json!({})) {
         Ok(d) => d,
         Err(e) => return format!("{report}[self-check] instance.list 失败: {e}"),

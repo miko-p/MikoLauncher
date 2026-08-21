@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### M9 已添加
+- **微软静默刷新失败重登 UI（M9-2）**：`account.refresh` 契约（`needsReauth` 信号）+ Rust `account_refresh` command —— 对指定微软账号显式静默刷新，区分「凭据仍有效」/「已失效需重新登录」（离线账号恒有效）；前端账号页挂载时自动检测各微软账号，失效时醒目「需重新登录」标记 + 失效原因 + 重新登录入口（走设备流），并提供手动「检查」按钮；`--self-check ⑩` 全链路验证 + Rust 单测。
+- **Microsoft 账号失效检测**：`accounts.rs` 新增 `refresh_microsoft_account()`（只读检测，不改持久化），单测覆盖「离线恒有效/不存在报错」。
+
 ### M8 已添加
 - **主题 / 布局插件（M8-1）**：三类插件补齐主题（CSS 变量运行时加载）+ 布局（slot 注入）。`UiRegistryService`（pull-based 镜像 Cordis 回滚：themeStack 弹栈 + per-slot layouts）、`ui.getManifest` 契约、前端 `App.vue` 注入点 + `stores/ui.ts`、示例插件 `demo-theme`/`demo-layout`；`--self-check ⑨` 全链路过
 - **sidecar 打包骨架（M8-B）**：esbuild 把 sidecar 打成单文件 `dist/main.mjs`（紧凑 cordis/shared，仅 better-sqlite3 原生模块 external）；`resolve_plugin_host()` 双路径（打包 externalBin / dev tsx）；`BUILD-SIDECAR.md` 记录发布 runtime 选型

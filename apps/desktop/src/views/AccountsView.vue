@@ -9,6 +9,8 @@ const store = useAccountStore()
 const offlineName = ref('')
 const loggingMs = ref(false)
 const deviceCode = ref<AccountDeviceCode | null>(null)
+/** M9-2：正在检查有效性的账号 id（用于按钮 loading 态）。 */
+const checkingId = ref<string | null>(null)
 let unlisten: (() => void) | undefined
 
 async function submitOffline() {
@@ -28,6 +30,16 @@ async function loginMs() {
   }
 }
 
+/** M9-2：显式检查单个微软账号的 refresh 凭据是否仍有效。 */
+async function check(accountId: string) {
+  checkingId.value = accountId
+  try {
+    await store.check(accountId)
+  } finally {
+    checkingId.value = null
+  }
+}
+
 async function setupDeviceCode() {
   try {
     unlisten = await listen<AccountDeviceCode>('account:device-code', (evt) => {
@@ -40,7 +52,17 @@ async function setupDeviceCode() {
 
 onMounted(() => {
   setupDeviceCode()
-  store.fetchAccounts()
+  store.fetchAccounts().then(async () => {
+    // M9-2：挂载时对各微软账号做一次静默刷新检测，前端自动暴露失效重登入口
+    for (const acc of store.microsoftAccounts) {
+      checkingId.value = acc.id
+      try {
+        await store.check(acc.id)
+      } finally {
+        checkingId.value = null
+      }
+    }
+  })
 })
 onUnmounted(() => unlisten?.())
 </script>
@@ -77,11 +99,34 @@ onUnmounted(() => unlisten?.())
     <!-- 账号列表 -->
     <ul v-if="store.accounts.length" class="list">
       <li v-for="acc in store.accounts" :key="acc.id" class="item">
-        <div>
-          <strong>{{ acc.name }}</strong>
-          <span class="tag" :class="acc.type">{{ acc.type === 'microsoft' ? '微软' : '离线' }}</span>
+        <div class="info">
+          <div class="top">
+            <strong>{{ acc.name }}</strong>
+            <span class="tag" :class="acc.type">{{ acc.type === 'microsoft' ? '微软' : '离线' }}</span>
+            <!-- M9-2：微软账号 refresh 失效 → 醒目「需重新登录」 -->
+            <span v-if="store.isInvalidated(acc.id)" class="tag bad">需重新登录</span>
+          </div>
+          <!-- M9-2：失效原因提示 -->
+          <span v-if="store.isInvalidated(acc.id)" class="muted reason">
+            {{ store.invalidated[acc.id] }}
+          </span>
         </div>
-        <button class="remove" @click="store.remove(acc.id)">删除</button>
+        <div class="actions">
+          <!-- M9-2：微软账号可手动检查凭据有效性 -->
+          <button
+            v-if="acc.type === 'microsoft'"
+            class="check"
+            :disabled="checkingId === acc.id || loggingMs"
+            @click="check(acc.id)"
+          >
+            {{ checkingId === acc.id ? '检查中…' : '检查' }}
+          </button>
+          <!-- M9-2：失效时提供重新登录入口（走设备流） -->
+          <button v-if="store.isInvalidated(acc.id)" class="relogin" :disabled="loggingMs" @click="loginMs">
+            重新登录
+          </button>
+          <button class="remove" @click="store.remove(acc.id)">删除</button>
+        </div>
       </li>
     </ul>
     <p v-else-if="!store.loading && !store.error" class="muted">还没有账号。用上方表单添加一个离线或微软账号。</p>
@@ -106,8 +151,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 .list { list-style: none; padding: 0; }
 .item { display: flex; justify-content: space-between; align-items: center;
   padding: 0.6rem 0.8rem; border: 1px solid var(--border, #333); border-radius: var(--radius, 8px); margin-bottom: 0.5rem; }
+.info { display: flex; flex-direction: column; gap: 0.2rem; }
+.top { display: flex; align-items: baseline; gap: 0.4rem; }
+.actions { display: flex; align-items: center; gap: 0.4rem; }
+.reason { font-size: 0.8rem; }
 .tag { padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.75rem; margin-left: 0.4rem; }
 .tag.microsoft { background: rgba(74, 144, 226, 0.15); color: #4a90e2; }
 .tag.offline { background: rgba(57, 197, 187, 0.15); color: #39c5bb; }
+.tag.bad { background: rgba(229, 72, 77, 0.15); color: #e5484d; }
+.check { background: var(--bg-elevated, #1b1f27); color: var(--text, #eee); border: 1px solid var(--border, #333); }
+.relogin { background: rgba(229, 72, 77, 0.2); color: #e5484d; border: 1px solid rgba(229,72,77,0.4); }
 .remove { background: rgba(229,72,77,0.15); color: #e5484d; }
 </style>

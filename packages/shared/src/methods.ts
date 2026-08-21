@@ -26,6 +26,7 @@ export const Method = {
   accountLoginOffline: 'account.loginOffline',
   accountLoginMicrosoft: 'account.loginMicrosoft',
   accountRemove: 'account.remove',
+  accountRefresh: 'account.refresh',
   uiGetManifest: 'ui.getManifest',
 } as const
 
@@ -178,6 +179,29 @@ export const accountRemoveDataSchema = z.object({
 })
 
 /* ------------------------------------------------------------------ *
+ *  account.refresh（M9-2 微软刷新失败重登）                             *
+ *  对指定微软账号显式触发一次静默刷新检测，区分「凭据仍有效」/「已失效     *
+ *  需重新登录」。前端据此在账号上显示失效提示与重新登录入口。            *
+ * ------------------------------------------------------------------ */
+
+export const accountRefreshParamsSchema = z.object({
+  id: z.string(),
+})
+
+export type AccountRefreshParams = z.infer<typeof accountRefreshParamsSchema>
+
+export const accountRefreshDataSchema = z.object({
+  /** 刷新后的账号（离线/未变时传原样；access_token 不导出） */
+  account: AccountSchema,
+  /** true = refresh_token 已失效，需用户重新登录（前端显示重登按钮） */
+  needsReauth: z.boolean(),
+  /** 失效/异常时的人类可读原因（有效或无异常时省略） */
+  message: z.string().optional(),
+})
+
+export type AccountRefreshData = z.infer<typeof accountRefreshDataSchema>
+
+/* ------------------------------------------------------------------ *
  *  ui.getManifest（M8-1 主题/布局插件）                                *
  *  前端拉取当前生效的 UI 贡献（active theme + per-slot layouts）。      *
  * ------------------------------------------------------------------ */
@@ -274,6 +298,10 @@ export const methodRegistry = {
   [Method.accountRemove]: {
     params: accountRemoveParamsSchema,
     data: accountRemoveDataSchema,
+  },
+  [Method.accountRefresh]: {
+    params: accountRefreshParamsSchema,
+    data: accountRefreshDataSchema,
   },
   [Method.uiGetManifest]: {
     params: uiGetManifestParamsSchema,
