@@ -17,9 +17,9 @@
 
 一个用 **Rust + Vue + Cordis** 写的 Minecraft（Java 版）启动器。
 
-它的主要方向是，在启动器里引入基于 **Cordis**「时空可组合」范式的前后端分离架构 —— 前端负责界面，Rust 内核负责真实的下载与启动，中间用 Cordis 插件宿主连接 —— 让代码结构更清楚一些，也让功能、主题、布局能以插件形式插拔（卸载时 `ctx.effect` 自动回滚）。目前**功能插件**已可装载运行，主题 / 布局插件仍在成形。
+它的主要方向是，在启动器里引入基于 **Cordis**「时空可组合」范式的前后端分离架构 —— 前端负责界面，Rust 内核负责真实的下载与启动，中间用 Cordis 插件宿主连接 —— 让代码结构更清楚一些，也让功能、主题、布局能以插件形式插拔（卸载时 `ctx.effect` 自动回滚）。目前**功能 / 主题 / 布局**三类插件均已能装载运行并支持启用状态持久化，发布版 sidecar 已可打成单文件安装包。
 
-目前还在**逐步演进**中：安装、下载、启动、多加载器、账号等基础能力已联通，插件体系还在成形。欢迎一起把它做得更好。
+目前还在**逐步演进**中：安装、下载、启动、多加载器、账号等基础能力已联通，插件分发（签名市场）仍在成形。欢迎一起把它做得更好。
 
 > 侧重点在「插件范式 + 前后端分离」
 ---
@@ -59,7 +59,8 @@
 - 🔧 **多加载器**：vanilla / fabric / quilt / neoforge / forge，启动前自动解析精确 loader 版本（NeoForge 按官方命名 `{minor}.{patch}.` 精确匹配）
 - 👤 **账号体系**：离线账号 + **微软设备流认证**（OAuth），微软 refresh_token 落 **OS keyring**（Secret Service / Keychain / 凭据管理器），账号本地持久化，实例**绑定账号启动**
 - 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活），实例账号绑定一键持久化
-- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）。主题 / 布局插件仍在成形，路线见 M8/M9。
+- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）；**主题 / 布局插件**已可注入（CSS 变量 + slot，示例 `demo-theme` / `demo-layout`）
+- 📦 **发布 runtime 落地**：sidecar 用 **bun 打成单文件可执行**（内嵌 runtime，无外部 Node 依赖，SQLite 走 Node 内置 `node:sqlite`），经 Tauri `externalBin` 打包 —— `tauri build` 已能产出 **deb / rpm / AppImage** 安装包
 
 > 每个里程碑的交付、验证、踩坑都记录在 [`docs/`](docs/) 下的 `M*-status.md`，完整技术决策见 [`MikoLauncher-architecture.md`](MikoLauncher-architecture.md)。
 
@@ -82,6 +83,20 @@ pnpm dev:desktop
 
 > 选项：`pnpm dev:host` 单独跑插件宿主；`cargo run -- --self-check`（在 `apps/desktop/src-tauri`）跑 Rust 内核自检（清单 / loader 版本 / 账号 / keyring / 插件装载 / sidecar 往返）。
 
+**构建发布安装包**（需先装 [bun](https://bun.sh)，环境变量注意见下）：
+
+```bash
+# 1. 生成 sidecar 单文件可执行（bun 内嵌 runtime，无外部 Node 依赖）
+pnpm --filter @miko-launcher/plugin-host build:binary
+
+# 2. 打安装包（deb / rpm / AppImage）
+pnpm --filter @miko-launcher/desktop tauri build
+# CachyOS / Arch 等滚动发行版打 AppImage 需跳过 strip（linuxdeploy 旧 strip 不认 .relr.dyn）：
+NO_STRIP=1 pnpm --filter @miko-launcher/desktop tauri build --bundles appimage
+```
+
+产物在 `apps/desktop/src-tauri/target/release/bundle/{deb,rpm,appimage}/`，均含主程序与 `plugin-host` sidecar。发布版数据/插件目录落在系统标准目录（Linux `~/.local/share/miko-launcher/`），由 Rust 端经 env 显式指定。
+
 **微软账号登录**需先注册 Azure AD 公共客户端应用并获得 Mojang 批准，然后以环境变量提供 client_id：
 
 ```bash
@@ -103,9 +118,9 @@ MikoLauncher/
 │  └─ plugin-host/        # Node sidecar（Cordis 插件宿主 · PluginManager）
 ├─ packages/
 │  └─ shared/             # Rust↔TS 共享 Zod 契约（Single Source of Truth）
-├─ plugins/               # 用户插件装载目录（Phase 0，含示例 demo-greeter）
+├─ plugins/               # 用户插件装载目录（Phase 0，含示例 demo-greeter / demo-theme / demo-layout）
 ├─ poc/                   # 早期概念验证脚本
-└─ docs/                  # 各里程碑 M1-M7 交付/验证/踩坑
+└─ docs/                  # 各里程碑 M1-M9 交付/验证/踩坑
 ```
 
 ---
@@ -120,7 +135,7 @@ MikoLauncher/
 - **M6** — 账号体系 + 微软认证 ✅
 - **M7** — 实例账号绑定持久化 · keyring 存微软 token · NeoForge 版本精确匹配 · 下载页 UI 增强 · Phase 0 功能插件装载 ✅
 - **M8** — 主题 / 布局插件 ✅
-- **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 插件启用状态持久化（M9-3 ✅）· 发布 runtime 选型 · 插件分发演进（进行中）
+- **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 插件启用状态持久化（M9-3 ✅）· 发布 runtime 落地（M9-4 ✅，bun 单文件 + externalBin 出安装包）· 插件分发演进（进行中）
 
 ---
 
