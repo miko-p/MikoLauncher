@@ -3,8 +3,8 @@ packages:
   - "apps/*"
   - "plugins/*"
 
-# pnpm 11：逐包控制 postinstall 构建脚本（esbuild 供 tsx/vite 用，vue-demi 补丁，better-sqlite3 原生编译）
+# pnpm 11：逐包控制 postinstall 构建脚本（esbuild 供 tsx/vite 用，vue-demi 补丁）
+# 注：better-sqlite3 已随 M9 发布 runtime 迁移到 node:sqlite（Node 内置），不再需要原生编译。
 allowBuilds:
   esbuild: true
   vue-demi: true
-  better-sqlite3: true

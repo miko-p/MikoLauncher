@@ -51,7 +51,7 @@ export class InstanceManagerService extends Service {
   list() {
     const rows = this.db.raw
       .prepare('SELECT * FROM instances ORDER BY created_at DESC')
-      .all() as InstanceRow[]
+      .all() as unknown as InstanceRow[]
     return { instances: rows.map(rowToInstance) }
   }
 

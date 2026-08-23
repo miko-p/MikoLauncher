@@ -1,44 +1,84 @@
-# Sidecar 打包与发布（M8-B 现状）
+# Sidecar 打包与发布（M9 已定稿：方案 A 单文件内嵌）
 
-## 现状（M8-1 骨架已完成并验证）
+## 总览
 
-Rust 核心 `resolve_plugin_host()` 已支持**两层启动**：
-1. **打包版（externalBin）**：`current_exe()` 同目录下找 `plugin-host` 可执行文件。
+Rust 核心两层启动 `resolve_plugin_host()`：
+1. **打包版（externalBin）**：`current_exe()` 同目录下找 `plugin-host`。
 2. **dev（源码）**：本地 tsx 跑 `apps/plugin-host/src/main.ts`。
 
 `tauri.conf.json` 已声明 `bundle.externalBin: ["binaries/plugin-host"]`，产物须放
 `src-tauri/binaries/plugin-host-<target-triple>`（当前 `x86_64-unknown-linux-gnu`）。
 
-`apps/plugin-host` 新增 `build` 脚本（esbuild，devDependency）：
-```bash
-pnpm --filter @miko-launcher/plugin-host build   # 产出 dist/main.mjs（~196KB）
+## 发布 runtime 选型：方案 A（单文件内嵌，已定稿）
+
+**决策（M9-4）**：用 **bun `build --compile`** 把 sidecar 打成一发单文件可执行
+（内嵌 Bun runtime，体积 ~65MB），`externalBin` 打包。不再需要目标机安装 Node。
+
+### 为什么能内嵌
+
+历史上卡点是 **better-sqlite3（原生 .node 模块）** 无法 bundle 进 JS，`NODE_MODULE_VERSION`
+绑定让 pkg/bun 内嵌困难。M9 起把 SQLite 迁移到 **Node 内置的 `node:sqlite`**（
+`DatabaseSync`），sidecar **不再有任何原生外部依赖** → 纯 JS 单文件 → bun 干净内嵌。
+
+### 构建链
+
 ```
-esbuild 把 cordis + @miko-launcher/shared + 全部 src 打成单文件 ESM，**仅剩
-better-sqlite3（原生 .node 模块）为 external**——它运行时从打包目录 node_modules 加载。
-已验证：`node dist/main.mjs` 直接跑通 Cordis 全链路（服务挂载 / instance.* handler /
-effect 回滚），输出 `{"ok":true,"data":{instances:[]}}`。
+apps/plugin-host/build-binary.sh [triple]   # 一步出 externalBin 产物
+  1. node build.mjs        # esbuild → dist/main.mjs（纯 ESM，无 external）
+  2. bun build --compile   # 内嵌 runtime → .build/plugin-host-<triple>
+  3. install               # → apps/desktop/src-tauri/binaries/plugin-host-<triple>
+```
 
-## 卡点：发布版的 Node 运行时来源
+对照 `pnpm --filter @miko-launcher/plugin-host build:binary`。
 
-esbuild 产物仍需要**一个能跑 better-sqlite3 的 Node 运行时**（better-sqlite3 是
-`NODE_MODULE_VERSION` 绑定的原生模块）。当前仓库内的 `binaries/plugin-host-<triple>`
-只是**验证用 wrapper**（shebang `#!/usr/bin/env node`，依赖目标机有 node + 源码布局），
-**不能作为正式发布产物**。
+triple → bun target 映射见脚本内 case（linux/darwin/windows 各架构）。
 
-正式发布需二选一（待拍板）：
-- **A（单文件内嵌，推荐，体积最小）**：用 `@yao-pkg/pkg` 或 `bun build --compile` 把
-  sidecar 打成一发可执行文件（内嵌 Node，无需目标机装 node）。风险：better-sqlite3 原生
-  模块 + Node≥26 的 `NODE_MODULE_VERSION` 匹配，可能需换 `node:sqlite`/重编原生模块，耗时不可控。
-- **B（内置 Node 运行时进 externalBin，体积较大）**：externalBin 打包一个 bun/node 可执行
-  文件，plugin-host 的 JS + node_modules 作为 `resources` 打包，运行时用打包的 bun 跑
-  `dist/main.mjs`。绕开原生模块内嵌难题，但发布体积大几十 MB。
+### 发布版数据/插件目录定位（关键）
 
-**在选型落地前，externalBin 配置保持现状**（wrapper 让 `cargo check`/`tauri build` 骨架可过），
-真正的可分发二进制待选型后替换 `binaries/plugin-host-<triple>`。
+bun `--compile` 单文件运行时 `import.meta.url` 指向**二进制自身**，无法像 dev
+（tsx 源码）/ node（esm bundle）那样反推源码布局来定位插件/数据目录。因此：
+
+- **Rust 端 `release_envs()`** 在打包分支注入两个 env（`ensure_app_state()` 后取
+  `lighty_core::AppState::data_dir()`）：
+  - `MC_LAUNCHER_DATA_DIR` = `<lighty data_dir>/sidecar-data`（实例 DB + 插件状态文件）
+  - `MIKO_PLUGINS_DIR`    = `<lighty data_dir>/plugins`（用户插件目录）
+- sidecar 端（`db.ts` / `plugin-manager.ts`）二者均 **env 优先**，据此定位。
+- dev 分支不注入 env，保持源码布局反推（`apps/plugin-host` 与 repo `plugins/`）。
+
+这样 dev 与发布行为一致、数据都落在 lighty 标准 data_dir（Linux `~/.local/share/miko-launcher/`），
+且不依赖二进制复制后的位置。
+
+### 禁止事项
+
+- 勿在 bun 单文件里依赖 `import.meta.url` 反推源码布局（会错位）。
+- wrapper 已被真实二进制取代；旧「shebang 依赖外部 node」的验证性 wrapper 不再使用。
+- `.build/` 与 `apps/desktop/src-tauri/binaries/` 均被 gitignore（发布产物，不入库）。
+
+### AppImage 打包需 `NO_STRIP=1`（CachyOS/新工具链）
+
+Tauri 捆绑的 linuxdeploy（2024 版）自带旧 binutils `strip`，无法识别新工具链产物里
+的 `.relr.dyn` 相对重定位 section，会导致 AppImage 打包失败
+（`Strip call failed: ... unknown type [0x13] section '.relr.dyn'`）。
+**在 Arch/CachyOS 等滚动发行版上构建 AppImage 时，须加 `NO_STRIP=1`** 跳过该 strip 步骤：
+
+```bash
+NO_STRIP=1 pnpm --filter @miko-launcher/desktop tauri build --bundles appimage
+```
+
+deb/rpm 不受影响（不经过 linuxdeploy strip）。
 
 ## 验证记录
-- `cargo check / clippy`：通过，零告警（externalBin 文件在位时）。
-- self-check ⑧：有兄弟 `<exe>同目录/plugin-host` → 走打包分支；无 → tsx 回退。
-- `node dist/main.mjs` 独立跑：通过。
-- 注意：wrapper 被**复制到别处**后其"反推 repo 根"的绝对路径会失效（开发定位 bundle 采用
-  `dist/main.mjs` 相对路径或注入环境变量的方式，勿用反推源码布局）。
+
+- `cargo check / clippy`：通过，零告警（externalBin 产物在位时）。
+- `cargo test`：2 通过（accounts 单测）。
+- `node dist/main.mjs` 独立跑：通过（实例 CRUD 全链路，node:sqlite）。
+- bun 单文件独立跑：通过（instance CRUD + plugin.list，bun 内嵌 runtime）。
+- **发布版 self-check**（`target/release/miko-launcher --self-check`，兄弟 `plugin-host` 二进制在位）：
+  打包分支命中、`MIKO_PLUGINS_DIR` env 注入生效（指向 `<data_dir>/plugins`）、
+  实例 CRUD / 清单 / 账号 / keyring 全链路通过。
+- **tauri build 产物**（`target/release/bundle/`）：
+  `MikoLauncher_0.1.0_amd64.AppImage`（~125MB，NO_STRIP=1）、
+  `MikoLauncher_0.1.0_amd64.deb`（~29MB）、`MikoLauncher-0.1.0-1.x86_64.rpm`（~29MB）。
+  三者均验证包含 `usr/bin/miko-launcher` 与 `usr/bin/plugin-host`两个可执行。
+- `--self-check`：见 lib.rs ⑧ plugin 装载（发布版经 env 注入定位 plugins 目录）。
+

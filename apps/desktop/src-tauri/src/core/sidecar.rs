@@ -38,14 +38,22 @@ impl std::fmt::Display for RpcCallError {
 impl SidecarClient {
     /// 直接 spawn 一个命令作为 sidecar（适用于显式可执行路径 / node 直启）。
     pub fn spawn(bin: &str, args: &[&str]) -> std::io::Result<Self> {
-        Self::spawn_in(None, bin, args)
+        Self::spawn_in(None, bin, args, &[])
     }
 
-    /// 在指定工作目录 `cwd` 下启动 sidecar 命令。
+    /// 在指定工作目录 `cwd` 下启动 sidecar 命令，并注入额外环境变量 `envs`。
     /// dev 场景：cwd = <repo>/apps/plugin-host，bin = ./node_modules/.bin/tsx（或绝对路径）。
-    pub fn spawn_in(cwd: Option<&str>, bin: &str, args: &[&str]) -> std::io::Result<Self> {
+    /// 打包场景：额外注入 `MC_LAUNCHER_DATA_DIR` / `MIKO_PLUGINS_DIR`（发布版数据落标准
+    ///   lighty data_dir，不依赖 bun 单文件反推源码布局）。
+    pub fn spawn_in(
+        cwd: Option<&str>,
+        bin: &str,
+        args: &[&str],
+        envs: &[(&str, &str)],
+    ) -> std::io::Result<Self> {
         let mut cmd = Command::new(bin);
         cmd.args(args)
+            .envs(envs.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             // sidecar 业务日志走 stderr（与 stdout 严格分离，stdout 只留 JSON 行）
@@ -128,9 +136,15 @@ impl SidecarClient {
 pub struct SyncSidecar(Option<std::sync::Mutex<SidecarClient>>, Option<String>);
 
 impl SyncSidecar {
-    /// 在指定 cwd 启动 sidecar 并包成共享句柄。
-    pub fn start(cwd: &str, bin: &str, args: &[&str]) -> Result<Self, String> {
-        let client = SidecarClient::spawn_in(Some(cwd), bin, args).map_err(|e| e.to_string())?;
+    /// 在指定 cwd 启动 sidecar 并包成共享句柄，注入额外环境变量 `envs`。
+    pub fn start(
+        cwd: &str,
+        bin: &str,
+        args: &[&str],
+        envs: &[(&str, &str)],
+    ) -> Result<Self, String> {
+        let client =
+            SidecarClient::spawn_in(Some(cwd), bin, args, envs).map_err(|e| e.to_string())?;
         Ok(SyncSidecar(Some(std::sync::Mutex::new(client)), None))
     }
 

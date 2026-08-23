@@ -30,15 +30,46 @@ pub struct AppState {
     pub sidecar: crate::core::sidecar::SyncSidecar,
 }
 
-/// 定位 plugin-host sidecar 的启动项，返回 `(cwd, bin, args)`。
+/// sidecar 启动规格：cwd、可执行文件、args、额外 env。
+struct PluginHostSpec {
+    cwd: String,
+    bin: String,
+    args: Vec<String>,
+    envs: Vec<(String, String)>,
+}
+
+/// 发布版 sidecar 的额外环境变量：把 sidecar 的数据/插件目录显式指向 lighty 标准
+/// data_dir（`<data_dir>/sidecar-data` 与 `<data_dir>/plugins`），并`确保 AppState 先 init`。
+///
+/// 为什么需要：bun `--compile` 单文件运行时 `import.meta.url` 指向二进制自身，
+/// 无法像 dev(tsx 源码) / node(esm bundle) 那样反推源码布局来定位插件/数据目录。
+/// 发布场景由 Rust 端注入 env，sidecar（db.ts / plugin-manager.ts 均 env 优先）据此定位；
+/// 同时 dev 分支不注入，保持现有「源码布局反推」行为不变。
+fn release_envs() -> Vec<(String, String)> {
+    let _ = crate::core::launch::ensure_app_state();
+    let data_dir = lighty_core::AppState::data_dir().to_path_buf();
+    vec![
+        (
+            "MC_LAUNCHER_DATA_DIR".to_string(),
+            data_dir.join("sidecar-data").to_string_lossy().into_owned(),
+        ),
+        (
+            "MIKO_PLUGINS_DIR".to_string(),
+            data_dir.join("plugins").to_string_lossy().into_owned(),
+        ),
+    ]
+}
+
+/// 定位 plugin-host sidecar 的启动项，返回启动规格（cwd / bin / args / envs）。
 ///
 /// 两层优先级：
 /// 1. **打包版（生产 externalBin）**：`current_exe()` 同目录下找 `plugin-host`
 ///    （Tauri 会把 `bundle.externalBin` 声明的 sidecar 与主程序放到同一可执行目录）。
-///    此时 bin = 该二进制，args = 空。
+///    此时 bin = 该二进制，args = 空，并注入 `release_envs()`（M9-4 发布 runtime）。
 /// 2. **dev（源码运行）**：无 companion 二进制时，回退到 `CARGO_MANIFEST_DIR`
-///    向上推导 repo 根的 `apps/plugin-host/node_modules/.bin/tsx` 启动 `src/main.ts`。
-fn resolve_plugin_host() -> (String, String, Vec<String>) {
+///    向上推导 repo 根的 `apps/plugin-host/node_modules/.bin/tsx` 启动 `src/main.ts`，
+///    不注入发布 env（保持源码布局反推的数据/插件目录）。
+fn resolve_plugin_host() -> PluginHostSpec {
     // 打包环境：externalBin 与主程序同目录（Linux/macOS，Tauri relative_command_path 逻辑）。
     let bundled = std::env::current_exe()
         .ok()
@@ -46,11 +77,12 @@ fn resolve_plugin_host() -> (String, String, Vec<String>) {
         .filter(|p| p.exists());
     if let Some(bin) = bundled {
         let cwd = bin.parent().unwrap_or(std::path::Path::new("."));
-        return (
-            cwd.to_str().unwrap_or(".").to_string(),
-            bin.to_str().expect("plugin-host bin utf8").to_string(),
-            Vec::new(),
-        );
+        return PluginHostSpec {
+            cwd: cwd.to_str().unwrap_or(".").to_string(),
+            bin: bin.to_str().expect("plugin-host bin utf8").to_string(),
+            args: Vec::new(),
+            envs: release_envs(),
+        };
     }
 
     // dev 环境：本地 tsx 跑 plugin-host 源码。
@@ -62,11 +94,12 @@ fn resolve_plugin_host() -> (String, String, Vec<String>) {
     let host_dir = repo_root.join("apps").join("plugin-host");
     let tsx_bin = host_dir.join("node_modules").join(".bin").join("tsx");
     let entry = host_dir.join("src").join("main.ts");
-    (
-        host_dir.to_str().expect("host_dir utf8").to_string(),
-        tsx_bin.to_str().expect("tsx_bin utf8").to_string(),
-        vec![entry.to_str().expect("entry utf8").to_string()],
-    )
+    PluginHostSpec {
+        cwd: host_dir.to_str().expect("host_dir utf8").to_string(),
+        bin: tsx_bin.to_str().expect("tsx_bin utf8").to_string(),
+        args: vec![entry.to_str().expect("entry utf8").to_string()],
+        envs: Vec::new(),
+    }
 }
 
 /// 实际转发一次调用到 sidecar。
@@ -371,19 +404,28 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // 定位 plugin-host：优先打包的 externalBin 二进制，dev 回退本地 tsx。
-            let (host_cwd, host_bin, host_args) = resolve_plugin_host();
-            let args_refs: Vec<&str> = host_args.iter().map(|s| s.as_str()).collect();
-            let app_state =
-                match crate::core::sidecar::SyncSidecar::start(&host_cwd, &host_bin, &args_refs) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        // sidecar 启动失败不应使应用崩溃：降级为可用占位，返回明确错误。
-                        eprintln!("[miko-launcher] 启动 plugin-host sidecar 失败: {e}");
-                        crate::core::sidecar::SyncSidecar::degraded(format!(
-                            "plugin-host sidecar 启动失败: {e}"
-                        ))
-                    }
-                };
+            let spec = resolve_plugin_host();
+            let args_refs: Vec<&str> = spec.args.iter().map(|s| s.as_str()).collect();
+            let env_refs: Vec<(&str, &str)> = spec
+                .envs
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            let app_state = match crate::core::sidecar::SyncSidecar::start(
+                &spec.cwd,
+                &spec.bin,
+                &args_refs,
+                &env_refs,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    // sidecar 启动失败不应使应用崩溃：降级为可用占位，返回明确错误。
+                    eprintln!("[miko-launcher] 启动 plugin-host sidecar 失败: {e}");
+                    crate::core::sidecar::SyncSidecar::degraded(format!(
+                        "plugin-host sidecar 启动失败: {e}"
+                    ))
+                }
+            };
             app.manage(AppState { sidecar: app_state });
 
             // 通知前端就绪
@@ -582,13 +624,22 @@ pub fn self_check() -> String {
         }
     }
 
-    let (host_cwd, host_bin, host_args) = resolve_plugin_host();
-    let args_refs: Vec<&str> = host_args.iter().map(|s| s.as_str()).collect();
-    let sidecar =
-        match crate::core::sidecar::SyncSidecar::start(&host_cwd, &host_bin, &args_refs) {
-            Ok(s) => s,
-            Err(e) => return format!("{report}[self-check] 无法启动 sidecar: {e}"),
-        };
+    let spec = resolve_plugin_host();
+    let args_refs: Vec<&str> = spec.args.iter().map(|s| s.as_str()).collect();
+    let env_refs: Vec<(&str, &str)> = spec
+        .envs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let sidecar = match crate::core::sidecar::SyncSidecar::start(
+        &spec.cwd,
+        &spec.bin,
+        &args_refs,
+        &env_refs,
+    ) {
+        Ok(s) => s,
+        Err(e) => return format!("{report}[self-check] 无法启动 sidecar: {e}"),
+    };
 
     // ⑧ Phase0 插件装载（M7-5）：经 sidecar plugin.list 验证 plugins/ 目录里的插件已被 Cordis 装载
     match sidecar.call("plugin.list", serde_json::json!({})) {

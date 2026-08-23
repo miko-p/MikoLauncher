@@ -5,6 +5,8 @@
 ## [未发布]
 
 ### M9 已添加
+- **发布 runtime 选型落地（M9-4）**：方案 A 单文件内嵌定稿——SQLite 从 better-sqlite3 迁移到 Node 内置 `node:sqlite`（去掉 sidecar 唯一原生模块），用 `bun build --compile` 打成一发可执行（内嵌 Bun runtime，无外部 Node 依赖），经 `tauri.conf.json` `bundle.externalBin` 打包进 deb/rpm/AppImage；发布版由 Rust 注入 `MC_LAUNCHER_DATA_DIR`/`MIKO_PLUGINS_DIR` 显式定位数据与插件目录（不依赖二进制反推源码布局，解决 bun 单文件 `import.meta.url` 定位盲区）。修掉 `frontendDist` 路径错位（原本 `tauri build` 找不到前端 dist）、记录 CachyOS 上 AppImage 打包需 `NO_STRIP=1`（linuxdeploy 旧 strip 不认识 `.relr.dyn`）。`apps/plugin-host/build-binary.sh` 一键产 externalBin 二进制。发布版 `--self-check` 全链路通过。
+- **SQLite 驱动迁移（better-sqlite3 → node:sqlite）**：`db.ts`/`instance-manager.ts` 改用 Node 26 内置 `DatabaseSync`（pragma 用 `exec`、`@name` 命名绑定兼容），移除 better-sqlite3 依赖与 pnpm allowBuilds 原生编译项。
 - **插件启用状态持久化（M9-3）**：`plugin-manager` 新增 `plugin-state.json` 启用状态落盘（缺省全启用）——`enable/disable` 持久化期望状态，`loadAll` 按状态选择性装载（禁用插件重启后不自动加载）；`plugin.list` 返回 `enabled` 字段，前端插件页展示「启用/已停用」徽标 + hover 说明；重启状态保持已用 dev tsx 与生产 bundle 双路径验证。
 - **修复 M8-B bundle 路径错位**：`resolveHostRoot()` 兼容 dev（`src/services`）与 bundle（`dist`）两种 `import.meta.url` 形态，修掉生产 bundle 扫不到 `plugins/`、数据目录落到错误路径的潜在缺陷。
 - **微软静默刷新失败重登 UI（M9-2）**：`account.refresh` 契约（`needsReauth` 信号）+ Rust `account_refresh` command —— 对指定微软账号显式静默刷新，区分「凭据仍有效」/「已失效需重新登录」（离线账号恒有效）；前端账号页挂载时自动检测各微软账号，失效时醒目「需重新登录」标记 + 失效原因 + 重新登录入口（走设备流），并提供手动「检查」按钮；`--self-check ⑩` 全链路验证 + Rust 单测。
@@ -27,10 +29,9 @@
 - **代码审查缺陷修复**：`chrono_now()` 伪日期 → 真 ISO8601（+单测）；accounts.json 写后 `0600`；过时注释更正；DownloadView quickCreate 默认 loader 不一致 + 消 `as any`；plugin-manager 批量加载去重复 `discover` 扫描；清理改名残留旧库 + 自检 create 后即删（不再堆积 `SelfCheckSMP`）
 
 ### 计划中（M9）
-- 发布 runtime 选型落地（sidecar 单文件内嵌 / 内置运行时 + resources），跑通 `tauri build` 出安装包
 - 插件市场 / 签名（Phase 1/2）
-- 微软静默刷新失败重登录 UI、多账号快捷切换
-- 插件管理 UI 完善（hash 失败告警到前端、启用状态持久化）
+- 多账号快捷切换
+- 插件管理 UI 完善（hash 失败告警到前端已做；后续补齐分发演进）
 
 ---
 

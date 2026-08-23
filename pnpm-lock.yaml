@@ -47,16 +47,10 @@ importers:
       '@miko-launcher/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      better-sqlite3:
-        specifier: ^13.0.3
-        version: 13.0.3
       cordis:
         specifier: 4.0.0-rc.8
         version: 4.0.0-rc.8
     devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^7.6.11
-        version: 7.6.13
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
@@ -623,9 +617,6 @@ packages:
     engines: {node: '>= 10'}
     hasBin: true
 
-  '@types/better-sqlite3@7.6.13':
-    resolution: {integrity: sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==}
-
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
@@ -703,10 +694,6 @@ packages:
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
-  better-sqlite3@13.0.3:
-    resolution: {integrity: sha512-RbOBxmLBG8uvFUc15X9+9SFemKcQ0WBuISBVkpuiaUB2qblC8UWlHEjdWVoZ8AdhSwmoEgsiXKfopX0CQxaACQ==}
-    engines: {node: '>=22'}
-
   brace-expansion@2.1.4:
     resolution: {integrity: sha512-hGfVzPxthbf3+2yjg/RBs60cB0FhqBS/zvdV/4wn4/BmN0bNMMHPc4V/BbFieqf1TKAGGAHnY4eSjajCl0f2Xg==}
 
@@ -771,10 +758,6 @@ packages:
     resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
-
-  node-addon-api@8.9.2:
-    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
-    engines: {node: ^18 || ^20 || >= 21}
 
   path-browserify@1.0.1:
     resolution: {integrity: sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==}
@@ -1180,10 +1163,6 @@ snapshots:
       '@tauri-apps/cli-win32-ia32-msvc': 2.11.4
       '@tauri-apps/cli-win32-x64-msvc': 2.11.4
 
-  '@types/better-sqlite3@7.6.13':
-    dependencies:
-      '@types/node': 26.2.0
-
   '@types/estree@1.0.9': {}
 
   '@types/node@22.20.1':
@@ -1193,6 +1172,7 @@ snapshots:
   '@types/node@26.2.0':
     dependencies:
       undici-types: 8.3.0
+    optional: true
 
   '@vitejs/plugin-vue@5.2.4(vite@5.4.21(@types/node@26.2.0))(vue@3.5.41(typescript@5.9.3))':
     dependencies:
@@ -1291,10 +1271,6 @@ snapshots:
 
   balanced-match@1.0.2: {}
 
-  better-sqlite3@13.0.3:
-    dependencies:
-      node-addon-api: 8.9.2
-
   brace-expansion@2.1.4:
     dependencies:
       balanced-match: 1.0.2
@@ -1386,8 +1362,6 @@ snapshots:
 
   nanoid@3.3.18: {}
 
-  node-addon-api@8.9.2: {}
-
   path-browserify@1.0.1: {}
 
   picocolors@1.1.1: {}
@@ -1452,7 +1426,8 @@ snapshots:
 
   undici-types@6.21.0: {}
 
-  undici-types@8.3.0: {}
+  undici-types@8.3.0:
+    optional: true
 
   vite@5.4.21(@types/node@26.2.0):
     dependencies:

@@ -1,11 +1,17 @@
 /**
- * SQLite 持久化层 —— better-sqlite3（对应蓝图「五、数据」）。
+ * SQLite 持久化层 —— node:sqlite（对应蓝图「五、数据」）。
  *
  * 实例/账号等数据落盘，重启侧车后仍在（替代 M2 的纯内存 Map）。
  * DB 路径：优先 env `MC_LAUNCHER_DATA_DIR`，否则 <plugin-host>/data/miko-launcher.db。
+ *
+ * M9 发布 runtime 落地：从 better-sqlite3 迁移到 Node 26 内置的 `node:sqlite`
+ * （DatabaseSync）。目的：去掉 sidecar 唯一的原生 .node 外部依赖，使
+ * `bun build --compile` 能打出纯单文件可执行（方案 A 单文件内嵌）。
+ * 二者都是同步 SQLite 驱动，API 兼容（prepare/run/get/all/exec）；
+ * 差异：pragma 用 exec("PRAGMA ...")，绑定支持 @name / :name 命名参数。
  */
 
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +26,7 @@ function defaultDataDir(): string {
 }
 
 export interface Db {
-  readonly raw: Database.Database
+  readonly raw: DatabaseSync
   /**
    * 使服务在卸载/进程退出时关闭连接。返回清理函数（供 ctx.effect 注册）。
    */
@@ -33,9 +39,9 @@ let _instance: Db | null = null
 export function getDb(dataDir: string = defaultDataDir()): Db {
   if (_instance) return _instance
   mkdirSync(dataDir, { recursive: true })
-  const raw = new Database(join(dataDir, 'miko-launcher.db'))
-  raw.pragma('journal_mode = WAL')
-  raw.pragma('foreign_keys = ON')
+  const raw = new DatabaseSync(join(dataDir, 'miko-launcher.db'))
+  raw.exec('PRAGMA journal_mode = WAL')
+  raw.exec('PRAGMA foreign_keys = ON')
   migrate(raw)
   const db: Db = {
     raw,
@@ -53,7 +59,7 @@ export function getDb(dataDir: string = defaultDataDir()): Db {
 }
 
 /** 建表（幂等）。 */
-function migrate(raw: Database.Database) {
+function migrate(raw: DatabaseSync) {
   raw.exec(`
     CREATE TABLE IF NOT EXISTS instances (
       id          TEXT PRIMARY KEY,

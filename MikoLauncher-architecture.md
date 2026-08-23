@@ -295,7 +295,7 @@ plugins:
 ## 十三、下一步（M9）
 
 M8 已落地：**主题/布局插件**、**sidecar 打包骨架**、**CSP 补丁** 与一批审查修复（完整见 `docs/M8-status.md`）。M9 起点（优先级建议）：
-1. **发布 runtime 选型落地**（M8-B 收尾）：定 pkg/bun 内嵌 Node 单文件 或 内置运行时+resources，启用 `externalBin` 并跑通 `tauri build` 产出安装包。
+1. **发布 runtime 选型落地** ✅（M9-4，见 `docs/M9-status.md` + `BUILD-SIDECAR.md`）：定稿方案 A 单文件内嵌——SQLite 迁移到 Node 内置 `node:sqlite`、`bun build --compile` 打单文件可执行、`tauri.conf.json` `bundle.externalBin` 打包；发布版由 Rust 注入 env 显式定位数据/插件目录。`tauri build` 已出 deb/rpm/AppImage 三包并验证含 sidecar。
 2. **微软静默刷新失败后的重登录 UI** ✅ 已完成（M9-2，见 `docs/M9-status.md`）；多账号快捷切换仍待定（当前以实例绑定账号承载）。
 3. **插件管理 UI 完善** ✅ 插件启用状态持久化（M9-3，`plugin-state.json`，见 `docs/M9-status.md`）；hash 校验失败告警前端已展示（hash✗）。
 4. **插件分发演进**：Phase 1 自建仓库 + 内置浏览；Phase 2 签名 + 验签 + 封禁清单（见 §九）。

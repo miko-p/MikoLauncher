@@ -10,6 +10,7 @@ target/
 
 # SQLite 数据（sidecar 运行产物，不入库）
 apps/plugin-host/data/
+apps/plugin-host/.build/
 *.db
 *.db-wal
 *.db-shm
@@ -17,6 +18,8 @@ apps/plugin-host/data/
 # Tauri build artifacts
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+# Tauri externalBin sidecar 编译产物（发布时由 build-binary.sh 生成，不入库）
+apps/desktop/src-tauri/binaries/
 
 # pnpm
 .pnpm-store/
