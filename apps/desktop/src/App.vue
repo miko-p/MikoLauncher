@@ -1,13 +1,28 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useUiStore } from './stores/ui'
+import { syncPluginRoutes } from './router'
 
 const uiStore = useUiStore()
 
-onMounted(() => {
-  // M8-1：启动时拉取主题/布局插件的 UI 贡献
+// M8-1：启动时拉取主题/布局/视图插件的 UI 贡献
+function refreshUi() {
   uiStore.refresh()
+}
+
+onMounted(() => {
+  refreshUi()
 })
+
+// M9-6：ui manifest 变化（插件启用/禁用后 refresh）时，同步动态插件路由。
+// 导航条直接渲染自 uiStore.views，无需额外兜底。
+watch(
+  () => uiStore.manifest,
+  (m) => {
+    if (m) syncPluginRoutes(uiStore.pluginViews)
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -17,12 +32,13 @@ onMounted(() => {
 
   <div class="app-shell">
     <header class="app-bar">
+      <!-- M9-6：导航条由 ui manifest 驱动（宿主内置视图 + 插件贡献的视图，按 order 排序） -->
       <nav class="app-nav">
-        <router-link to="/">首页</router-link>
-        <router-link to="/download">下载</router-link>
-        <router-link to="/instances">实例</router-link>
-        <router-link to="/accounts">账号</router-link>
-        <router-link to="/plugins">插件</router-link>
+        <router-link
+          v-for="v in uiStore.views"
+          :key="v.key"
+          :to="v.path"
+        >{{ v.label }}</router-link>
       </nav>
     </header>
     <main class="app-main">

@@ -6,7 +6,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UiManifest, UiLayoutSlot } from '@miko-launcher/shared'
+import type { UiManifest, UiLayoutSlot, UiView } from '@miko-launcher/shared'
 import { getUiManifest } from '../api'
 
 export const useUiStore = defineStore('ui', () => {
@@ -24,6 +24,19 @@ export const useUiStore = defineStore('ui', () => {
   /** 所有 slot 名（前端的注入点枚举用） */
   const activeSlots = computed(() => [...new Set((manifest.value?.layouts ?? []).map((l) => l.slot))])
 
+  /**
+   * M9-6：导航/页面视图集合（已过滤 disabled，按 order 排序）。
+   * 由宿主内置视图 + 插件贡献的视图合并（sidecar UiRegistryService 已种子化内置五视图）。
+   */
+  const views = computed<UiView[]>(() =>
+    (manifest.value?.views ?? [])
+      .filter((v) => !v.disabled)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)),
+  )
+
+  /** M9-6：仅插件贡献的视图（builtin=false，用于前端动态注册路由）。 */
+  const pluginViews = computed<UiView[]>(() => views.value.filter((v) => !v.builtin))
+
   /** 拉取最新的 UI 贡献（前端在启用/禁用插件后调用）。 */
   async function refresh() {
     error.value = null
@@ -34,5 +47,5 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
-  return { manifest, theme, error, layoutsFor, activeSlots, refresh }
+  return { manifest, theme, error, layoutsFor, activeSlots, views, pluginViews, refresh }
 })

@@ -117,12 +117,43 @@ export const UiLayoutSlotSchema = z.object({
 
 export type UiLayoutSlot = z.infer<typeof UiLayoutSlotSchema>
 
-/** ui.getManifest → 前端要渲染的 UI 贡献（theme 单值 active；layouts 按 slot） */
+/**
+ * 视图插件贡献的一个「导航条目 + 页面」（M9-6 插件化 UI 骨架）。
+ *
+ * 让插件能新增/重排顶部导航与对应页面，而不必改前端硬编码路由：
+ *  - `builtin=true`：宿主内置视图（download/instances/accounts/plugins/home 等），静态路由支持
+ *  - `builtin=false`：插件贡献的视图，内容走 `type=html`（v-html slot，与现有布局插件一致）
+ *    —— 交互逻辑深化留给后续（运行时加载 Vue 模块，属分发演进 Phase 2）。
+ */
+export const UiViewSchema = z.object({
+  /** 视图/导航条目标识（对应前端组件 key，如 'download'/'instances' 或插件自定义 key） */
+  key: z.string(),
+  /** 导航显示文本 */
+  label: z.string(),
+  /** 路由路径（内置视图需与前端静态路由一致；插件视图可为任意唯一路径） */
+  path: z.string(),
+  /** 导航排序（数字越小越靠前；不提供则按注册序） */
+  order: z.number().optional(),
+  /** 是否宿主内置视图（非插件贡献）。缺省 false（插件贡献）。 */
+  builtin: z.boolean().optional(),
+  /** 渲染方式：'component'=前端宿主预设组件（内置视图）；'html'=v-html 内容（插件视图）。缺省 'component'。 */
+  type: z.enum(['component', 'html']).optional(),
+  /** 插件视图的 HTML 内容（type='html' 时必填） */
+  html: z.string().optional(),
+  /** 是否禁用（隐藏导航项 + 不渲染页面）。 */
+  disabled: z.boolean().optional(),
+})
+
+export type UiView = z.infer<typeof UiViewSchema>
+
+/** ui.getManifest → 前端要渲染的 UI 贡献（theme 单值 active；layouts 按 slot；views 为导航源码） */
 export const UiManifestSchema = z.object({
   /** 当前生效主题（无主题插件时为 null） */
   theme: UiThemeSchema.nullable(),
   /** 各 slot 当前生效的布局贡献 */
   layouts: z.array(UiLayoutSlotSchema),
+  /** 导航/页面视图集合 = 宿主内置 + 插件贡献（前端据此渲染导航条 + 注册路由） */
+  views: z.array(UiViewSchema),
 })
 
 export type UiManifest = z.infer<typeof UiManifestSchema>
@@ -135,5 +166,6 @@ export const entities = {
   ModLoader: ModLoaderSchema,
   UiTheme: UiThemeSchema,
   UiLayoutSlot: UiLayoutSlotSchema,
+  UiView: UiViewSchema,
   UiManifest: UiManifestSchema,
 }

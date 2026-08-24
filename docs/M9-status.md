@@ -15,6 +15,7 @@
 | **发布 runtime 选型落地（M9-4）** | 方案 A 单文件内嵌：SQLite 迁移到 Node 内置 `node:sqlite`（去原生模块）→ `bun build --compile` 打单文件可执行 → `tauri.conf.json` `bundle.externalBin` 打包；Rust `release_envs()` 注入 `MC_LAUNCHER_DATA_DIR`/`MIKO_PLUGINS_DIR` 显式定位数据/插件目录；`apps/plugin-host/build-binary.sh` 一键产出；修掉 `frontendDist` 路径错位 | `target/release/miko-launcher --self-check` 打包分支 + env 注入全链路 ✓；deb/rpm/AppImage 三包均含 `plugin-host` sidecar ✓；AppImage 解包 `AppRun --self-check` ✓ |
 | **修复 M8-B bundle 路径错位** | `resolveHostRoot()` 兼容 dev（`src/services`）与 bundle（`dist`）两种 `import.meta.url` 形态 | 生产 `dist/main.mjs` 能扫到 `plugins/` + 数据目录 ✓（原为扫不到/落错目录） |
 | **发布 runtime 收尾（M9-5）** | `build-binary.sh` 跨平台（Windows `.exe` + 落位改 `cp`）；`resolve_plugin_host()` 打包分支按 `cfg!(windows)` 找 companion；`ci.yml` 加 sidecar smoke（bun 常驻）；新增 `release.yml` 三端矩阵（Linux `NO_STRIP=1` 出 deb/rpm/AppImage、macOS universal、Windows msi/nsis）打 tag 打包并由 create-release 作业汇总 GitHub Release | YAML 校验 ✓；Linux 本机 `build-binary.sh` 复跑 ✓（单文件 ~65MB 可执行）；`--self-check` 兼容 ✓ |
+| **插件化 UI 骨架（M9-6）** | `UiViewSchema`（key/label/path/order/builtin/type/html/disabled）并入 `UiManifestSchema.views`；sidecar `UiRegistryService` 种子化内置五视图 + `registerView()`（插件可增/删导航项与页面，卸载 effect 移除）；前端 `App.vue` 导航条改由 `uiStore.views` 渲染（不再写死 5 个 router-link）+ `router.addRoute` 动态注册插件视图 → `PluginHtmlView`；示例插件 `demo-view`（type=html 贡献导航页） | sidecar `ui.getManifest` 返回 6 views（5 内置 builtin + 1 插件 demo-view）✓；`pnpm build` 全绿（vue-tsc 含新字段/组件）；cargo check/clippy 零告警；`--self-check` 全绿 |
 
 ## 设计要点
 
@@ -34,6 +35,8 @@
   - **bun `--compile`**：`apps/plugin-host/build-binary.sh` 用 `bun build dist/main.mjs --compile` 打成一发可执行（内嵌 Bun runtime，体积 ~65MB），产物放 `src-tauri/binaries/plugin-host-<triple>`，经 `bundle.externalBin` 打包。
   - **发布定位盲区与解法**：bun 单文件运行时 `import.meta.url` 指向二进制自身，无法反推源码布局来定位数据/插件目录。Rust `release_envs()` 在打包分支注入 `MC_LAUNCHER_DATA_DIR`（`<lighty data_dir>/sidecar-data`）与 `MIKO_PLUGINS_DIR`（`<lighty data_dir>/plugins`），sidecar 端（db.ts / plugin-manager.ts）env 优先据此定位；dev 分支不注入保持源码反推。数据统一落 lighty 标准 data_dir（`~/.local/share/miko-launcher/`），与 accounts.json 一致。
   - **顺带修复**：`frontendDist` 从 `../desktop/dist` 改为 `../dist`（相对 `src-tauri/` 解析，原路径导致 `tauri build` 找不到前端产物）；CachyOS 上 AppImage 打包需 `NO_STRIP=1`（linuxdeploy 旧 strip 不认识新工具链的 `.relr.dyn`）。
+- **M9-6 插件化 UI 骨架**：把顶栏导航 + 页面路由从「前端硬编码五页」升级为「由 ui manifest 驱动」——sidecar `UiRegistryService` 在构造时种子化内置五视图（builtin=true），插件经 `registerView()` 可**新增/覆盖**导航项与页面（key 幂等），卸载 `effect` 自动移除（builtin 视图保留）。前端 `App.vue` 导航条改渲染 `uiStore.views`（过滤 disabled + 按 order 排序），`router.addRoute` 动态注册插件视图 → `PluginHtmlView`（v-html 渲染插件 html 内容）。
+  - **交互承载边界**：插件视图目前 `type='html'`（v-html，与布局 slot 同一通道，宿主信任 phase0 hash + CSP 限内联脚本），只能做静态/装饰内容；**更丰富的组件级交互（Vue 组件 slot、可执行逻辑、调 Rust）留待分发演进 Phase 2（运行时加载 Vue 模块）**——这是「功能插件 + 布局插件缝合」的下一步。
 
 ## 验证详情
 
@@ -113,6 +116,21 @@ draft Release 带 5 个产物（deb/rpm/dmg/exe/msi）已可认领发布。
 
 另修：`identifier "dev.mikolauncher.app"` 尾部 `.app` 与 macOS bundle 扩展名冲突（tauri 警告），改 `dev.mikolauncher`。
 
+### 7. M9-6 插件化 UI 验证
+
+对 sidecar 直接调 `ui.getManifest`（spawn `node dist/main.mjs`），返回 **6 个 views**：
+```
+[0]  key=home      label=首页    path=/          builtin=true  type=component
+[1]  key=download  label=下载    path=/download  builtin=true  type=component
+[2]  key=instances label=实例    path=/instances builtin=true  type=component
+[3]  key=accounts  label=账号    path=/accounts  builtin=true  type=component
+[4]  key=plugins   label=插件    path=/plugins   builtin=true  type=component
+[10] key=demo-view label=示例视图 path=/demo-view builtin=false type=html   ← demo-view 插件贡献
+插件贡献视图数: 1 (demo-view)
+```
+- 5 内置视图（种子化）+ 1 插件贡献（demo-view 经 `registerView`），前端导航条据此渲染 + 动态注册 `/demo-view` 路由。
+- `pnpm build` 全绿（vue-tsc 含新 `UiView`/`views` 字段与 PluginHtmlView 组件）；cargo check/clippy 零告警；`--self-check` 全绿无回归。
+
 
 ## 相关文件
 - `packages/shared/src/methods.ts`（`account.refresh` Method + params/data schema + registry）
@@ -122,6 +140,7 @@ draft Release 带 5 个产物（deb/rpm/dmg/exe/msi）已可认领发布。
 - `apps/desktop/src/api/index.ts`（`listPlugins` 返回 `enabled`）、`stores/plugins.ts`、`views/PluginsView.vue`（「启用/已停用」徽标）
 - **M9-4**：`apps/plugin-host/src/services/db.ts` + `services/instance-manager.ts`（better-sqlite3 → node:sqlite）、`apps/plugin-host/build.mjs` + `build-binary.sh`（bun 单文件）、`apps/plugin-host/package.json`（`build:binary`）、`apps/desktop/src-tauri/src/core/sidecar.rs`（spawn 支持 env）、`tauri.conf.json`（`bundle.externalBin` + `frontendDist` 修复）、`.gitignore`、`BUILD-SIDECAR.md`
 - **M9-5**：`.github/workflows/release.yml`（三端打包 + GitHub Release）、`.github/workflows/ci.yml`（sidecar smoke）、`build-binary.sh`（Windows `.exe` + `cp` 落位）、`apps/desktop/src-tauri/src/lib.rs`（`resolve_plugin_host()` 跨平台 companion 名）、`apps/desktop/src-tauri/icons/`（`tauri icon` 重新生成全套真图标）、`tauri.conf.json`（`identifier` 去 `.app` 后缀）
+- **M9-6**：`packages/shared/src/entities.ts`（`UiViewSchema` + `UiManifestSchema.views`）、`apps/plugin-host/src/services/ui-registry.ts`（内置视图种子化 + `registerView`）、`apps/desktop/src/stores/ui.ts`（`views`/`pluginViews`）、`apps/desktop/src/router/index.ts`（`syncPluginRoutes` 动态 addRoute）、`apps/desktop/src/views/PluginHtmlView.vue`（插件 html 页面渲染）、`apps/desktop/src/App.vue`（导航改由 manifest 渲染）、`plugins/demo-view/`（示例视图插件）
 
 ## 尚未完成（M9 后续）
 - **多账号快捷切换**：当前以「实例绑定账号」承载（InstancesView 每行账号下拉）；全局「默认账号」概念待定。

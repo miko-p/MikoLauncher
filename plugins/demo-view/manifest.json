@@ -1,0 +1,9 @@
+{
+  "name": "demo-view",
+  "version": "1.0.0",
+  "api": 1,
+  "publisher": "miko-launcher",
+  "type": "layout",
+  "slot": "view",
+  "hash": "bb1acca25d67af32868b2b538669436535849bf61ce214fe41f3dd28619dd07e"
+}

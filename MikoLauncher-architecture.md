@@ -298,7 +298,7 @@ M8 已落地：**主题/布局插件**、**sidecar 打包骨架**、**CSP 补丁
 1. **发布 runtime 选型落地** ✅（M9-4，见 `docs/M9-status.md` + `BUILD-SIDECAR.md`）：定稿方案 A 单文件内嵌——SQLite 迁移到 Node 内置 `node:sqlite`、`bun build --compile` 打单文件可执行、`tauri.conf.json` `bundle.externalBin` 打包；发布版由 Rust 注入 env 显式定位数据/插件目录。`tauri build` 已出 deb/rpm/AppImage 三包并验证含 sidecar。**收尾 ✅（M9-5）**：发布链接入 GitHub Actions——`ci.yml` 持续验证 sidecar 单文件构建，新增 `release.yml` 打 tag `v*` 三端矩阵（Linux `NO_STRIP=1` / macOS universal / Windows）打包并汇总 GitHub Release；`resolve_plugin_host()` 跨平台 companion 名（Windows `.exe`）。
 2. **微软静默刷新失败后的重登录 UI** ✅ 已完成（M9-2，见 `docs/M9-status.md`）；多账号快捷切换仍待定（当前以实例绑定账号承载）。
 3. **插件管理 UI 完善** ✅ 插件启用状态持久化（M9-3，`plugin-state.json`，见 `docs/M9-status.md`）；hash 校验失败告警前端已展示（hash✗）。
-4. **插件分发演进**：Phase 1 自建仓库 + 内置浏览；Phase 2 签名 + 验签 + 封禁清单（见 §九）。
+4. **插件分发演进**：Phase 1 自建仓库 + 内置浏览；Phase 2 签名 + 验签 + 封禁清单（见 §九）。**M9-6 插件化 UI 骨架 ✅（已落地）**：顶栏导航与页面路由改由 `ui.getManifest.views` 驱动（sidecar `UiRegistryService` 种子化内置五视图 + `registerView()`；前端导航渲染自 manifest + `router.addRoute` 动态注册插件视图 → `PluginHtmlView`）。**交互承载边界**：插件视图当前 `type='html'`（v-html，静态/装饰），组件级交互（Vue 组件、可执行逻辑、调 Rust）留待分发演进 Phase 2（与 §九 Phase 2 的运行时加载 Vue 模块方向一致）。
 
 ---
 
