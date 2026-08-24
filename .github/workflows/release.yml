@@ -99,7 +99,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libgtk-3-dev
+            librsvg2-dev patchelf libgtk-3-dev libfuse2
 
       - name: Install JS deps
         run: pnpm install
@@ -113,12 +113,22 @@ jobs:
         working-directory: apps/plugin-host
         run: bash ./build-binary.sh ${{ matrix.triple }}
 
-      - name: Build sidecar binary (macOS, both archs)
+      # macOS universal：Tauri 对 target=universal-apple-darwin 期望一个 lipo 合并后的
+      # `binaries/plugin-host-universal-apple-darwin`，而非两个分离 darwin triple。
+      - name: Build sidecar binary (macOS, universal)
         if: matrix.os == 'macos-14'
         working-directory: apps/plugin-host
         run: |
           bash ./build-binary.sh aarch64-apple-darwin
           bash ./build-binary.sh x86_64-apple-darwin
+          lipo -create \
+            .build/plugin-host-aarch64-apple-darwin \
+            .build/plugin-host-x86_64-apple-darwin \
+            -output .build/plugin-host-universal-apple-darwin
+          mkdir -p ../../apps/desktop/src-tauri/binaries
+          cp -f .build/plugin-host-universal-apple-darwin \
+             ../../apps/desktop/src-tauri/binaries/plugin-host-universal-apple-darwin
+          file ../../apps/desktop/src-tauri/binaries/plugin-host-universal-apple-darwin
 
       # tauri build 出安装包（Linux 注 NO_STRIP=1 过 AppImage；macOS 指定 universal target）
       # 用 desktop package 已声明的 "tauri" script（pnpm --filter <pkg> tauri build）而非
@@ -132,9 +142,12 @@ jobs:
           echo "### cwd: $(pwd)"
           echo "### desktop bin tauri:" && ls -l apps/desktop/node_modules/.bin/tauri 2>&1
           echo "### externalBin sidecar:" && ls -l apps/desktop/src-tauri/binaries/ 2>&1
-          # Linux 打 AppImage 跳过 strip（linuxdeploy 旧 strip 不认 .relr.dyn）
+          # Linux 打 AppImage：跳过 strip（linuxdeploy 旧 strip 不认 .relr.dyn -> NO_STRIP=1）
+          # 且 GitHub Actions ubuntu runner 无 FUSE2，AppImage 会因无法自挂载而失败——
+          # 用 APPIMAGE_EXTRACT_AND_RUN=1 强制 linuxdeploy AppImage 解压后运行，绕开 FUSE。
           if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
             export NO_STRIP=1
+            export APPIMAGE_EXTRACT_AND_RUN=1
           fi
           if [ -n "${{ matrix.targets }}" ]; then
             pnpm --filter @miko-launcher/desktop tauri build --target "${{ matrix.targets }}" --bundles "${{ matrix.bundles }}"
