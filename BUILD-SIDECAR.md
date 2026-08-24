@@ -78,7 +78,10 @@ deb/rpm 不受影响（不经过 linuxdeploy strip）。
   新增 `Install bun` + `Build sidecar binary (smoke)` 两步 —— 持续跑通
   `build-binary.sh`，确保 sidecar 单文件可执行在 CI 上能正常产出。
 - **`release.yml`（打 tag `v*` 触发）**：三端矩阵打包 + 汇总成 GitHub Release：
-  - **Linux（ubuntu-22.04）**：sidecar `x86_64-unknown-linux-gnu` → `tauri build`，注 `NO_STRIP=1`，出 deb / rpm / AppImage。
+  - **Linux（ubuntu-22.04）**：sidecar `x86_64-unknown-linux-gnu` → `tauri build` 出 **deb + rpm**
+    （**不含 AppImage**——`failed to run linuxdeploy` 是 tauri 在 GitHub Actions ubuntu runner
+    上的已知未解决 bug（tauri-apps/tauri#14796，已试 libfuse2 + `APPIMAGE_EXTRACT_AND_RUN=1` 均无效；
+    deb/rpm 同一 run 成功）。AppImage 改由**本机**（Arch/CachyOS，`NO_STRIP=1`）产出，见上文。）
   - **macOS（macos-14，universal）**：sidecar 打 `aarch64-apple-darwin` + `x86_64-apple-darwin` 两支，
     `rustup target add` 两个 Darwin 架构，`tauri build --target universal-apple-darwin` 出 dmg/app。
   - **Windows（windows-2022）**：sidecar `x86_64-pc-windows-msvc`（带 `.exe`），`tauri build` 出 msi / nsis。
@@ -94,10 +97,13 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 > 注：macOS/Windows 的 `tauri build` 需对应平台 runner 上的系统工具（NSIS/WiX/dmg 等由 Tauri CLI 自动处理）。
-> 本仓库当前已在 Linux 上本地验证过 deb/rpm/AppImage 三包；mac/win 端点由同一条 release.yml 在对应 runner 上产出并验证。
+> Linux 本地可出 deb/rpm/AppImage 三包；release.yml 三端 CI 端到端已跑通（见「验证记录」）。
 
 ## 验证记录
 
+- **release.yml 三端端到端（tag `v0.1.0` → Release #4 全绿）**：
+  Linux deb+rpm / macOS universal dmg / Windows msi+nsis 全部成功，create-release 汇总成
+  draft Release（5 个资产：deb/rpm/dmg/exe/msi）。修因见 `docs/M9-status.md` §6。
 - `cargo check / clippy`：通过，零告警（externalBin 产物在位时）。
 - `cargo test`：2 通过（accounts 单测）。
 - `node dist/main.mjs` 独立跑：通过（实例 CRUD 全链路，node:sqlite）。

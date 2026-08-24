@@ -97,11 +97,13 @@ NO_STRIP=1 pnpm --filter @miko-launcher/desktop tauri build --bundles appimage
 
 产物在 `apps/desktop/src-tauri/target/release/bundle/{deb,rpm,appimage}/`，均含主程序与 `plugin-host` sidecar。发布版数据/插件目录落在系统标准目录（Linux `~/.local/share/miko-launcher/`），由 Rust 端经 env 显式指定。
 
-**跨平台发布（CI）**：发布链已接入 GitHub Actions —— `ci.yml` 每次 push/PR 持续验证含 sidecar 单文件构建；`release.yml` 打 tag `v*` 触发三端矩阵打包（Linux deb/rpm/AppImage、macOS universal、Windows msi/nsis）并汇总成 GitHub Release：
+**跨平台发布（CI）**：发布链已接入 GitHub Actions —— `ci.yml` 每次 push/PR 持续验证含 sidecar 单文件构建；`release.yml` 打 tag `v*` 触发三端矩阵打包（Linux deb+rpm、macOS universal、Windows msi+nsis）并汇总成 GitHub Release：
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+> Linux AppImage 因 tauri 已知 CI bug（linuxdeploy 在 ubuntu runner 上失败，#14796）不在 CI 产出，改由本机 `NO_STRIP=1` 打包（见 BUILD-SIDECAR.md）。
 
 **微软账号登录**需先注册 Azure AD 公共客户端应用并获得 Mojang 批准，然后以环境变量提供 client_id：
 

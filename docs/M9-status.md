@@ -94,6 +94,25 @@ target/release/bundle/rpm/  MikoLauncher-0.1.0-1.x86_64.rpm       ~29MB
 ```
 三者均验证含 `usr/bin/miko-launcher` + `usr/bin/plugin-host`；AppImage 解包后 `AppRun --self-check` 同样通过（最终发布形态）。
 
+### 6. M9-5 跨平台 CI 端到端（Release #4 全绿）
+
+打 tag `v0.1.0` 触发 `release.yml`，三端真实 runner 并行打包，**全部 4 个 job 成功**，create-release 汇总成 draft Release：
+
+| 平台 | runner | 产物 | 状态 |
+|---|---|---|---|
+| Linux | ubuntu-22.04 | `MikoLauncher_0.1.0_amd64.deb`、`MikoLauncher-0.1.0-1.x86_64.rpm` | ✅ |
+| macOS | macos-14 (universal) | `MikoLauncher_0.1.0_universal.dmg` | ✅ |
+| Windows | windows-2022 | `MikoLauncher_0.1.0_x64_en-US.msi`、`MikoLauncher_0.1.0_x64-setup.exe` | ✅ |
+
+draft Release 带 5 个产物（deb/rpm/dmg/exe/msi）已可认领发布。
+
+**过程中修掉的三个真实根因**（三端各自报错，targeted 修复）：
+- **Windows**：`RC2175 ... icon.ico is not in 3.00 format` —— 原 `icon.ico`/`icon.icns` 是 15/16 字节占位符文本（`PLACEHOLDER`），非合法 ICO/ICNS；用 `tauri icon` 从真实 `icon.png`（512²）重新生成全套图标（含 Store/Android/iOS）。
+- **macOS**：`Failed to copy external binaries: binaries/plugin-host-universal-apple-darwin doesn't exist` —— Tauri universal target 需要 lipo 合并后的 universal sidecar，而非两个分离 darwin triple；workflow 加 `lipo -create` 合并。
+- **Linux AppImage**：`failed to run linuxdeploy`（deb/rpm 同 run 成功）—— GitHub Actions ubuntu runner 上 tauri 已知未解决 bug（#14796，`libfuse2` + `APPIMAGE_EXTRACT_AND_RUN=1` 均无效）。**决策：Linux CI 只出 deb+rpm，AppImage 改由本机（Arch/CachyOS `NO_STRIP=1`）产出**（见 BUILD-SIDECAR.md）。
+
+另修：`identifier "dev.mikolauncher.app"` 尾部 `.app` 与 macOS bundle 扩展名冲突（tauri 警告），改 `dev.mikolauncher`。
+
 
 ## 相关文件
 - `packages/shared/src/methods.ts`（`account.refresh` Method + params/data schema + registry）
@@ -102,7 +121,7 @@ target/release/bundle/rpm/  MikoLauncher-0.1.0-1.x86_64.rpm       ~29MB
 - `apps/plugin-host/src/services/plugin-manager.ts`（启用状态持久化 + `resolveHostRoot()` bundle 修复）
 - `apps/desktop/src/api/index.ts`（`listPlugins` 返回 `enabled`）、`stores/plugins.ts`、`views/PluginsView.vue`（「启用/已停用」徽标）
 - **M9-4**：`apps/plugin-host/src/services/db.ts` + `services/instance-manager.ts`（better-sqlite3 → node:sqlite）、`apps/plugin-host/build.mjs` + `build-binary.sh`（bun 单文件）、`apps/plugin-host/package.json`（`build:binary`）、`apps/desktop/src-tauri/src/core/sidecar.rs`（spawn 支持 env）、`tauri.conf.json`（`bundle.externalBin` + `frontendDist` 修复）、`.gitignore`、`BUILD-SIDECAR.md`
-- **M9-5**：`.github/workflows/release.yml`（三端打包 + GitHub Release）、`.github/workflows/ci.yml`（sidecar smoke）、`build-binary.sh`（Windows `.exe` + `cp` 落位）、`apps/desktop/src-tauri/src/lib.rs`（`resolve_plugin_host()` 跨平台 companion 名）
+- **M9-5**：`.github/workflows/release.yml`（三端打包 + GitHub Release）、`.github/workflows/ci.yml`（sidecar smoke）、`build-binary.sh`（Windows `.exe` + `cp` 落位）、`apps/desktop/src-tauri/src/lib.rs`（`resolve_plugin_host()` 跨平台 companion 名）、`apps/desktop/src-tauri/icons/`（`tauri icon` 重新生成全套真图标）、`tauri.conf.json`（`identifier` 去 `.app` 后缀）
 
 ## 尚未完成（M9 后续）
 - **多账号快捷切换**：当前以「实例绑定账号」承载（InstancesView 每行账号下拉）；全局「默认账号」概念待定。
