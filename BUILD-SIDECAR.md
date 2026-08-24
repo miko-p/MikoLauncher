@@ -53,6 +53,9 @@ bun `--compile` 单文件运行时 `import.meta.url` 指向**二进制自身**�
 - 勿在 bun 单文件里依赖 `import.meta.url` 反推源码布局（会错位）。
 - wrapper 已被真实二进制取代；旧「shebang 依赖外部 node」的验证性 wrapper 不再使用。
 - `.build/` 与 `apps/desktop/src-tauri/binaries/` 均被 gitignore（发布产物，不入库）。
+- **Windows 侧产物名带 `.exe`**：`build-binary.sh` 对 `x86_64-pc-windows-msvc` 输出
+  `plugin-host-<triple>.exe`（供 Tauri externalBin 识别）；落位用 `cp`（POSIX/Git Bash 通用）
+  而非 `install -m`，以免 Windows runner 权限语义差异。
 
 ### AppImage 打包需 `NO_STRIP=1`（CachyOS/新工具链）
 
@@ -66,6 +69,32 @@ NO_STRIP=1 pnpm --filter @miko-launcher/desktop tauri build --bundles appimage
 ```
 
 deb/rpm 不受影响（不经过 linuxdeploy strip）。
+
+## CI / 跨平台打包（M9 收尾）
+
+发布链已纳入 GitHub Actions，分两条流水线：
+
+- **`ci.yml`（每次 push/PR 到 master）**：沿用既有门禁（build + typecheck + cargo check/clippy），
+  新增 `Install bun` + `Build sidecar binary (smoke)` 两步 —— 持续跑通
+  `build-binary.sh`，确保 sidecar 单文件可执行在 CI 上能正常产出。
+- **`release.yml`（打 tag `v*` 触发）**：三端矩阵打包 + 汇总成 GitHub Release：
+  - **Linux（ubuntu-22.04）**：sidecar `x86_64-unknown-linux-gnu` → `tauri build`，注 `NO_STRIP=1`，出 deb / rpm / AppImage。
+  - **macOS（macos-14，universal）**：sidecar 打 `aarch64-apple-darwin` + `x86_64-apple-darwin` 两支，
+    `rustup target add` 两个 Darwin 架构，`tauri build --target universal-apple-darwin` 出 dmg/app。
+  - **Windows（windows-2022）**：sidecar `x86_64-pc-windows-msvc`（带 `.exe`），`tauri build` 出 msi / nsis。
+  - 各端产物 `upload-artifact` 后由 `create-release` 作业用 `softprops/action-gh-release` 汇总到
+    GitHub Release（draft，`generate_release_notes`）。
+
+**跨平台 Rust 侧配套**：`resolve_plugin_host()` 打包分支以 `cfg!(windows)` 决定 companion 名
+（非 Windows=`plugin-host`，Windows=`plugin-host.exe`），确保 Windows 安装版也能定位 sidecar。
+
+触发发布示例：
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+> 注：macOS/Windows 的 `tauri build` 需对应平台 runner 上的系统工具（NSIS/WiX/dmg 等由 Tauri CLI 自动处理）。
+> 本仓库当前已在 Linux 上本地验证过 deb/rpm/AppImage 三包；mac/win 端点由同一条 release.yml 在对应 runner 上产出并验证。
 
 ## 验证记录
 

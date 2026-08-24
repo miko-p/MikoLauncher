@@ -36,15 +36,21 @@ echo "[build-binary] triple=$TRIPLE → bun target=$BUN_TARGET"
 echo "[build-binary] esbuild bundle → dist/main.mjs"
 node build.mjs
 
-# 2) bun 内嵌 runtime 打成单文件可执行
-OUT=".build/plugin-host-$TRIPLE"
+# 2) bun 内嵌 runtime 打成单文件可执行（Windows 输出带 .exe，供 Tauri externalBin 识别）
+EXE=""
+case "$TRIPLE" in
+  x86_64-pc-windows-msvc) EXE=".exe" ;;
+esac
+OUT=".build/plugin-host-$TRIPLE$EXE"
 mkdir -p .build
 echo "[build-binary] bun compile → $OUT"
 bun build dist/main.mjs --compile --outfile "$OUT" --target "$BUN_TARGET"
 
-# 3) 放置到 Tauri externalBin 预期目录（Tauri 按 <name>-<triple> 查找）
-DEST="../../apps/desktop/src-tauri/binaries/plugin-host-$TRIPLE"
+# 3) 放置到 Tauri externalBin 预期目录（Tauri 按 <name>-<triple>[.exe] 查找）
+DEST="../../apps/desktop/src-tauri/binaries/plugin-host-$TRIPLE$EXE"
 mkdir -p "$(dirname "$DEST")"
-install -m 0755 "$OUT" "$DEST"
+# 用 cp（POSIX/Git Bash 通用）而非 install -m，避免 Windows runner 上的权限语义差异
+cp -f "$OUT" "$DEST"
+chmod +x "$DEST" 2>/dev/null || true
 echo "[build-binary] 已放置: $DEST"
 ls -la "$DEST"

@@ -1,0 +1,185 @@
+name: Release
+
+# 发布流水线（M9 收尾）：打 tag vX.Y.Z 触发，跨平台（Linux/macOS/Windows）三端
+# 打包 sidecar 单文件可执行 + tauri build 出安装包，随产物创建 GitHub Release。
+#
+# 触发：git tag v0.1.0 && git push origin v0.1.0
+#
+# 关键点（对应 BUILD-SIDECAR.md / M9-status.md）：
+#   - sidecar 用 bun build --compile 单文件（无原生模块，走 node:sqlite），
+#     每端在本机按 native triple 构建并放置到 src-tauri/binaries/plugin-host-<triple>
+#     （Windows 为 plugin-host-<triple>.exe）。
+#   - Linux 打 AppImage 必须 NO_STRIP=1（linuxdeploy 旧 strip 不认 .relr.dyn）。
+#   - macOS 出 universal（x86_64 + arm64 合并），sidecar 需为两个 darwin triple 各打一份。
+#   - 产物先 upload-artifact，再由 create-release 作业汇总上传到 GitHub Release。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+            app_name: MikoLauncher_*.{deb,rpm,AppImage}
+          - name: macos-universal
+            os: macos-14
+            triples: aarch64-apple-darwin x86_64-apple-darwin
+            targets: universal-apple-darwin
+            bundles: app,dmg
+            app_name: MikoLauncher_*.{app,dmg}
+          - name: windows
+            os: windows-2022
+            triple: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+            app_name: MikoLauncher_*.{msi,exe}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust toolchain（lighty-launch 需 Rust ≥ 1.95）
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # macOS universal 需两个 Darwin 架构的编译目标
+      - name: Add macOS targets
+        if: matrix.os == 'macos-14'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: cargo-${{ matrix.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Cache pnpm
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Tauri 系统依赖（Linux）
+      - name: Install Tauri system deps (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - name: Install JS deps
+        run: pnpm install
+
+      - name: Build shared + frontend
+        run: pnpm run build
+
+      # 构建 sidecar 单文件可执行（native triple；macOS 两支 darwin triple）
+      - name: Build sidecar binary (Linux / Windows)
+        if: matrix.os != 'macos-14'
+        working-directory: apps/plugin-host
+        run: bash ./build-binary.sh ${{ matrix.triple }}
+
+      - name: Build sidecar binary (macOS, both archs)
+        if: matrix.os == 'macos-14'
+        working-directory: apps/plugin-host
+        run: |
+          bash ./build-binary.sh aarch64-apple-darwin
+          bash ./build-binary.sh x86_64-apple-darwin
+
+      # tauri build 出安装包（Linux 注 NO_STRIP=1 过 AppImage；macOS 指定 universal target）
+      - name: Build installers
+        shell: bash
+        run: |
+          # Linux 打 AppImage 跳过 strip（linuxdeploy 旧 strip 不认 .relr.dyn）
+          if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
+            export NO_STRIP=1
+          fi
+          if [ -n "${{ matrix.targets }}" ]; then
+            pnpm --filter @miko-launcher/desktop exec tauri build --target "${{ matrix.targets }}" --bundles "${{ matrix.bundles }}"
+          else
+            pnpm --filter @miko-launcher/desktop exec tauri build --bundles "${{ matrix.bundles }}"
+          fi
+
+      # 收集产物路径
+      - name: Locate installers
+        id: installers
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.targets }}" ]; then
+            BUNDLE_DIR="apps/desktop/src-tauri/target/${{ matrix.targets }}/release/bundle"
+          else
+            BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
+          fi
+          find "$BUNDLE_DIR" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \
+            -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" \) \
+            | tee /tmp/installer-paths.txt
+          echo "paths=$(paste -sd, /tmp/installer-paths.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload installers as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: |
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.deb
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.rpm
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.AppImage
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.dmg
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.msi
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.exe
+
+  # 汇总各端产物到 GitHub Release
+  create-release:
+    name: Create GitHub Release
+    needs: package
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: MikoLauncher ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: true
+          files: installers/**

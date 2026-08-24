@@ -59,11 +59,22 @@ jobs:
       - name: Install JS deps
         run: pnpm install
 
+      # bun：供 build-binary.sh 将 sidecar 打成单文件可执行（发布链中的一环）
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Build shared + frontend
         run: pnpm run build
 
       - name: Frontend typecheck (plugin-host)
         run: pnpm --filter @miko-launcher/plugin-host typecheck
+
+      # 持续验证发布链：sidecar 能正常打成单文件可执行并落到 externalBin 目录
+      - name: Build sidecar binary (smoke)
+        working-directory: apps/plugin-host
+        run: bash ./build-binary.sh x86_64-unknown-linux-gnu
 
       - name: Rust check
         working-directory: apps/desktop/src-tauri

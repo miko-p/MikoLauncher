@@ -97,6 +97,12 @@ NO_STRIP=1 pnpm --filter @miko-launcher/desktop tauri build --bundles appimage
 
 产物在 `apps/desktop/src-tauri/target/release/bundle/{deb,rpm,appimage}/`，均含主程序与 `plugin-host` sidecar。发布版数据/插件目录落在系统标准目录（Linux `~/.local/share/miko-launcher/`），由 Rust 端经 env 显式指定。
 
+**跨平台发布（CI）**：发布链已接入 GitHub Actions —— `ci.yml` 每次 push/PR 持续验证含 sidecar 单文件构建；`release.yml` 打 tag `v*` 触发三端矩阵打包（Linux deb/rpm/AppImage、macOS universal、Windows msi/nsis）并汇总成 GitHub Release：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 **微软账号登录**需先注册 Azure AD 公共客户端应用并获得 Mojang 批准，然后以环境变量提供 client_id：
 
 ```bash
@@ -135,7 +141,7 @@ MikoLauncher/
 - **M6** — 账号体系 + 微软认证 ✅
 - **M7** — 实例账号绑定持久化 · keyring 存微软 token · NeoForge 版本精确匹配 · 下载页 UI 增强 · Phase 0 功能插件装载 ✅
 - **M8** — 主题 / 布局插件 ✅
-- **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 插件启用状态持久化（M9-3 ✅）· 发布 runtime 落地（M9-4 ✅，bun 单文件 + externalBin 出安装包）· 插件分发演进（进行中）
+- **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 插件启用状态持久化（M9-3 ✅）· 发布 runtime 落地（M9-4 ✅，bun 单文件 + externalBin 出安装包）· 发布收尾（M9-5 ✅，CI 三端打包流水线 + GitHub Release）· 插件分发演进（进行中）
 
 ---
 

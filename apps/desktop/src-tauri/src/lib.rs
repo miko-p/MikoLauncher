@@ -63,18 +63,27 @@ fn release_envs() -> Vec<(String, String)> {
 /// 定位 plugin-host sidecar 的启动项，返回启动规格（cwd / bin / args / envs）。
 ///
 /// 两层优先级：
-/// 1. **打包版（生产 externalBin）**：`current_exe()` 同目录下找 `plugin-host`
+/// 1. **打包版（生产 externalBin）**：`current_exe()` 同目录下找 companion 二进制
 ///    （Tauri 会把 `bundle.externalBin` 声明的 sidecar 与主程序放到同一可执行目录）。
+///    Linux/macOS 名称是 `plugin-host`，Windows 是 `plugin-host.exe`，故两者都尝试。
 ///    此时 bin = 该二进制，args = 空，并注入 `release_envs()`（M9-4 发布 runtime）。
 /// 2. **dev（源码运行）**：无 companion 二进制时，回退到 `CARGO_MANIFEST_DIR`
 ///    向上推导 repo 根的 `apps/plugin-host/node_modules/.bin/tsx` 启动 `src/main.ts`，
 ///    不注入发布 env（保持源码布局反推的数据/插件目录）。
 fn resolve_plugin_host() -> PluginHostSpec {
-    // 打包环境：externalBin 与主程序同目录（Linux/macOS，Tauri relative_command_path 逻辑）。
+    // 打包环境：externalBin 与主程序同目录（跨平台名：非 Windows=plugin-host，Windows=plugin-host.exe）。
     let bundled = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("plugin-host")))
-        .filter(|p| p.exists());
+        .and_then(|exe| {
+            let dir = exe.parent()?;
+            let name = if cfg!(windows) {
+                "plugin-host.exe"
+            } else {
+                "plugin-host"
+            };
+            let p = dir.join(name);
+            p.exists().then_some(p)
+        });
     if let Some(bin) = bundled {
         let cwd = bin.parent().unwrap_or(std::path::Path::new("."));
         return PluginHostSpec {

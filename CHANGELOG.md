@@ -5,6 +5,7 @@
 ## [未发布]
 
 ### M9 已添加
+- **发布 runtime 收尾（M9-5）**：发布链纳入 GitHub Actions —— `ci.yml` 新增 `Install bun` + `Build sidecar binary (smoke)` 持续验证单文件侧车可产出；新增 `release.yml`（打 tag `v*` 触发）三端矩阵打包（Linux `NO_STRIP=1` 出 deb/rpm/AppImage、macOS universal、Windows msi/nsis），各端 `upload-artifact` 后由 `create-release` 作业汇总成 GitHub Release（draft + 自动 release notes）。`build-binary.sh` 跨平台化：Windows 侧产物带 `.exe` 后缀、落位改 `cp`（POSIX/Git Bash 通用）；`resolve_plugin_host()` 打包分支按 `cfg!(windows)` 找 companion（Windows=`plugin-host.exe`），消除 Windows 装版定位不到 sidecar 的隐患。
 - **发布 runtime 选型落地（M9-4）**：方案 A 单文件内嵌定稿——SQLite 从 better-sqlite3 迁移到 Node 内置 `node:sqlite`（去掉 sidecar 唯一原生模块），用 `bun build --compile` 打成一发可执行（内嵌 Bun runtime，无外部 Node 依赖），经 `tauri.conf.json` `bundle.externalBin` 打包进 deb/rpm/AppImage；发布版由 Rust 注入 `MC_LAUNCHER_DATA_DIR`/`MIKO_PLUGINS_DIR` 显式定位数据与插件目录（不依赖二进制反推源码布局，解决 bun 单文件 `import.meta.url` 定位盲区）。修掉 `frontendDist` 路径错位（原本 `tauri build` 找不到前端 dist）、记录 CachyOS 上 AppImage 打包需 `NO_STRIP=1`（linuxdeploy 旧 strip 不认识 `.relr.dyn`）。`apps/plugin-host/build-binary.sh` 一键产 externalBin 二进制。发布版 `--self-check` 全链路通过。
 - **SQLite 驱动迁移（better-sqlite3 → node:sqlite）**：`db.ts`/`instance-manager.ts` 改用 Node 26 内置 `DatabaseSync`（pragma 用 `exec`、`@name` 命名绑定兼容），移除 better-sqlite3 依赖与 pnpm allowBuilds 原生编译项。
 - **插件启用状态持久化（M9-3）**：`plugin-manager` 新增 `plugin-state.json` 启用状态落盘（缺省全启用）——`enable/disable` 持久化期望状态，`loadAll` 按状态选择性装载（禁用插件重启后不自动加载）；`plugin.list` 返回 `enabled` 字段，前端插件页展示「启用/已停用」徽标 + hover 说明；重启状态保持已用 dev tsx 与生产 bundle 双路径验证。

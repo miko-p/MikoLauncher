@@ -2,7 +2,8 @@
 
 > 目标：落地 M9 起点清单（见 `MikoLauncher-architecture.md` §十三）。
 > 本轮完成 **M9-2 微软静默刷新失败后的重登录 UI**、**M9-3 插件启用状态持久化**、
-> **M9-4 发布 runtime 选型落地（方案 A 单文件内嵌，跑通 `tauri build` 出安装包）**；
+> **M9-4 发布 runtime 选型落地（方案 A 单文件内嵌，跑通 `tauri build` 出安装包）**、
+> **M9-5 发布 runtime 收尾（CI 纳入 sidecar 构建 + 跨平台三端打包流水线）**；
 > 其余项（多账号快捷切换、插件分发演进）仍待后续推进。
 
 ## 交付物
@@ -13,6 +14,7 @@
 | **插件启用状态持久化（M9-3）** | `plugin-manager` 新增 `plugin-state.json` 启用状态落盘（缺省全启用）；`enable/disable` 持久化期望状态；`loadAll` 按状态选择性装载（禁用插件重启后不自动加载）；`plugin.list` 返回 `enabled`；前端插件页展示「启用/已停用」徽标 + hover 说明 | dev tsx ✓ + 生产 bundle ✓ 双路径「禁用→重启→不加载→启用→重启→恢复」往返；self-check ⑧⑨✓ |
 | **发布 runtime 选型落地（M9-4）** | 方案 A 单文件内嵌：SQLite 迁移到 Node 内置 `node:sqlite`（去原生模块）→ `bun build --compile` 打单文件可执行 → `tauri.conf.json` `bundle.externalBin` 打包；Rust `release_envs()` 注入 `MC_LAUNCHER_DATA_DIR`/`MIKO_PLUGINS_DIR` 显式定位数据/插件目录；`apps/plugin-host/build-binary.sh` 一键产出；修掉 `frontendDist` 路径错位 | `target/release/miko-launcher --self-check` 打包分支 + env 注入全链路 ✓；deb/rpm/AppImage 三包均含 `plugin-host` sidecar ✓；AppImage 解包 `AppRun --self-check` ✓ |
 | **修复 M8-B bundle 路径错位** | `resolveHostRoot()` 兼容 dev（`src/services`）与 bundle（`dist`）两种 `import.meta.url` 形态 | 生产 `dist/main.mjs` 能扫到 `plugins/` + 数据目录 ✓（原为扫不到/落错目录） |
+| **发布 runtime 收尾（M9-5）** | `build-binary.sh` 跨平台（Windows `.exe` + 落位改 `cp`）；`resolve_plugin_host()` 打包分支按 `cfg!(windows)` 找 companion；`ci.yml` 加 sidecar smoke（bun 常驻）；新增 `release.yml` 三端矩阵（Linux `NO_STRIP=1` 出 deb/rpm/AppImage、macOS universal、Windows msi/nsis）打 tag 打包并由 create-release 作业汇总 GitHub Release | YAML 校验 ✓；Linux 本机 `build-binary.sh` 复跑 ✓（单文件 ~65MB 可执行）；`--self-check` 兼容 ✓ |
 
 ## 设计要点
 
@@ -100,8 +102,9 @@ target/release/bundle/rpm/  MikoLauncher-0.1.0-1.x86_64.rpm       ~29MB
 - `apps/plugin-host/src/services/plugin-manager.ts`（启用状态持久化 + `resolveHostRoot()` bundle 修复）
 - `apps/desktop/src/api/index.ts`（`listPlugins` 返回 `enabled`）、`stores/plugins.ts`、`views/PluginsView.vue`（「启用/已停用」徽标）
 - **M9-4**：`apps/plugin-host/src/services/db.ts` + `services/instance-manager.ts`（better-sqlite3 → node:sqlite）、`apps/plugin-host/build.mjs` + `build-binary.sh`（bun 单文件）、`apps/plugin-host/package.json`（`build:binary`）、`apps/desktop/src-tauri/src/core/sidecar.rs`（spawn 支持 env）、`tauri.conf.json`（`bundle.externalBin` + `frontendDist` 修复）、`.gitignore`、`BUILD-SIDECAR.md`
+- **M9-5**：`.github/workflows/release.yml`（三端打包 + GitHub Release）、`.github/workflows/ci.yml`（sidecar smoke）、`build-binary.sh`（Windows `.exe` + `cp` 落位）、`apps/desktop/src-tauri/src/lib.rs`（`resolve_plugin_host()` 跨平台 companion 名）
 
 ## 尚未完成（M9 后续）
 - **多账号快捷切换**：当前以「实例绑定账号」承载（InstancesView 每行账号下拉）；全局「默认账号」概念待定。
 - **插件分发演进**：Phase 1/2（签名 + 验签 + 内建浏览）。
-- **发布 runtime 收尾（可选）**：`tauri build` 已出 deb/rpm/AppImage 三包并验证；CI 里可把 `NO_STRIP=1` 与跨平台（mac/win）triple 打包纳入流水线。
+- ~~发布 runtime 收尾~~ ✅ 已落地（M9-5 见上）——`ci.yml` 加 sidecar smoke、新增 `release.yml` 三端（Linux/macOS universal/Windows）打 tag 打包并汇总 GitHub Release；`resolve_plugin_host()` 跨平台 companion 名（Windows `.exe`）。mac/win 安装包需在对应 GitHub runner 上产出（本地仅 Linux 已验证三包）。
