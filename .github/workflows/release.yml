@@ -121,17 +121,25 @@ jobs:
           bash ./build-binary.sh x86_64-apple-darwin
 
       # tauri build 出安装包（Linux 注 NO_STRIP=1 过 AppImage；macOS 指定 universal target）
+      # 用 desktop package 已声明的 "tauri" script（pnpm --filter <pkg> tauri build）而非
+      # `pnpm exec tauri`——exec 在 CI 的 pnpm store/工作目录布局下可能解析不到 tauri bin，
+      # 走 package script 则稳定从该包 node_modules/.bin 解析，且与仓库 README 本地验证一致。
       - name: Build installers
         shell: bash
         run: |
+          set -euo pipefail
+          # 诊断：确认 tauri bin 与 sidecar 二进制在位（用于定位 CI 打包失败）
+          echo "### cwd: $(pwd)"
+          echo "### desktop bin tauri:" && ls -l apps/desktop/node_modules/.bin/tauri 2>&1
+          echo "### externalBin sidecar:" && ls -l apps/desktop/src-tauri/binaries/ 2>&1
           # Linux 打 AppImage 跳过 strip（linuxdeploy 旧 strip 不认 .relr.dyn）
           if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
             export NO_STRIP=1
           fi
           if [ -n "${{ matrix.targets }}" ]; then
-            pnpm --filter @miko-launcher/desktop exec tauri build --target "${{ matrix.targets }}" --bundles "${{ matrix.bundles }}"
+            pnpm --filter @miko-launcher/desktop tauri build --target "${{ matrix.targets }}" --bundles "${{ matrix.bundles }}"
           else
-            pnpm --filter @miko-launcher/desktop exec tauri build --bundles "${{ matrix.bundles }}"
+            pnpm --filter @miko-launcher/desktop tauri build --bundles "${{ matrix.bundles }}"
           fi
 
       # 收集产物路径
