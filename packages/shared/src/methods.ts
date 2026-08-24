@@ -213,6 +213,28 @@ export const uiGetManifestDataSchema = UiManifestSchema
 export type UiGetManifestData = z.infer<typeof uiGetManifestDataSchema>
 
 /* ------------------------------------------------------------------ *
+ *  ui.viewAction（M9-6 交互插件）                                      *
+ *  前端触发插件视图的一个动作：Rust 转发到 sidecar 的 view.<key>.<action> *
+ *  （该 sidecar 方法名动态，不在 methodRegistry，由插件 rustBridge.on 注册） *
+ * ------------------------------------------------------------------ */
+
+export const viewActionParamsSchema = z.object({
+  /** 视图 key（对应插件贡献的 view.key） */
+  key: z.string(),
+  /** 动作 id（对应插件注册的 view.<key>.<action> 中的 action） */
+  action: z.string(),
+  /** 传给插件 handler 的参数（可选，任意 JSON） */
+  params: z.unknown().optional(),
+})
+
+export type ViewActionParams = z.infer<typeof viewActionParamsSchema>
+
+/** 动作结果：任意 JSON（由插件 handler 决定形状；前端不强制 schema，契约宽松） */
+export const viewActionDataSchema = z.unknown()
+
+export type ViewActionData = z.infer<typeof viewActionDataSchema>
+
+/* ------------------------------------------------------------------ *
  *  微软登录事件（device code 提示，Rust → 前端）                         *
  * ------------------------------------------------------------------ */
 

@@ -174,10 +174,36 @@ fn plugin_disable(state: tauri::State<'_, AppState>, payload: Value) -> Result<V
     call_sidecar(&state, "plugin.disable", payload)
 }
 
-/// 拉取 UI 贡献（M8-1 主题/布局插件）—— 转发到 sidecar ui.getManifest。
+/// 拉取 UI 贡献（M8-1 主题/布局/视图插件）—— 转发到 sidecar ui.getManifest。
 #[tauri::command]
 fn ui_get_manifest(state: tauri::State<'_, AppState>) -> Result<Value, String> {
     call_sidecar(&state, "ui.getManifest", json!({}))
+}
+
+/// 插件视图动作（M9-6 交互插件）—— 前端触发插件视图的一个动作。
+/// 转发到 sidecar 的 `view.<key>.<action>`（方法名由 key+action 动态拼出，
+/// 不在 methodRegistry，由插件 `ctx.rustBridge.on('view.<key>.<action>', ...)` 注册）。
+/// 仅 key/action 拼成方法名转发，防止任意方法注入（未知则 sidecar 返回 METHOD_NOT_FOUND）。
+#[tauri::command]
+fn plugin_view_action(
+    state: tauri::State<'_, AppState>,
+    payload: Value,
+) -> Result<Value, String> {
+    let key = payload
+        .get("key")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let action = payload
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if key.is_empty() || action.is_empty() {
+        return Err("view action 需提供 key 与 action".into());
+    }
+    // 限定方法名只落在 view.* 命名空间：插件视图贡献的键/动作才可被调用
+    let method = format!("view.{key}.{action}");
+    let params = payload.get("params").cloned().unwrap_or(json!({}));
+    call_sidecar(&state, &method, params)
 }
 
 /// 启动实例 —— M4：改为 Rust 本地 LaunchAdapter 真实启动（lighty 内核），不再转发 sidecar。
@@ -462,6 +488,7 @@ pub fn run() {
             plugin_enable,
             plugin_disable,
             ui_get_manifest,
+            plugin_view_action,
             account_list,
             account_login_offline,
             account_login_microsoft,

@@ -17,6 +17,8 @@ import {
   accountRemoveDataSchema,
   accountRefreshDataSchema,
   uiGetManifestDataSchema,
+  viewActionDataSchema,
+  type ViewActionData,
   type Instance,
   type Account,
   type UiManifest,
@@ -160,4 +162,14 @@ export async function disablePlugin(name: string): Promise<boolean> {
 export async function getUiManifest(): Promise<UiManifest> {
   const data = await call<UiManifest>('ui_get_manifest', {})
   return uiGetManifestDataSchema.parse(data)
+}
+
+/** ui.viewAction —— 触发插件视图的一个动作（M9-6 交互插件）。 */
+export async function viewAction(payload: {
+  key: string
+  action: string
+  params?: unknown
+}): Promise<ViewActionData> {
+  const data = await call<ViewActionData>('plugin_view_action', { payload })
+  return viewActionDataSchema.parse(data)
 }

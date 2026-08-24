@@ -59,7 +59,7 @@
 - 🔧 **多加载器**：vanilla / fabric / quilt / neoforge / forge，启动前自动解析精确 loader 版本（NeoForge 按官方命名 `{minor}.{patch}.` 精确匹配）
 - 👤 **账号体系**：离线账号 + **微软设备流认证**（OAuth），微软 refresh_token 落 **OS keyring**（Secret Service / Keychain / 凭据管理器），账号本地持久化，实例**绑定账号启动**
 - 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活），实例账号绑定一键持久化
-- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）；**主题 / 布局插件**已可注入（CSS 变量 + slot，示例 `demo-theme` / `demo-layout`）；**插件化 UI 骨架升级（M9-6）**——顶栏导航与页面路由改由 ui manifest 驱动，插件可经 `registerView` 新增/覆盖导航项与页面（示例 `demo-view`），「整套界面由插件声明」的框架已立起，组件级交互深化待分发演进
+- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）；**主题 / 布局插件**已可注入（CSS 变量 + slot，示例 `demo-theme` / `demo-layout`）；**插件化 UI 骨架升级（M9-6）**——顶栏导航与页面路由改由 ui manifest 驱动，插件可经 `registerView` 新增/覆盖导航项与页面（示例 `demo-view`），并可声明**可点动作**（`actions` 按钮 → sidecar 插件 handler → 结果回显），「整套界面由插件声明 + 插件页可交互」的框架已立起；组件级交互深化待分发演进
 - 📦 **发布 runtime 落地**：sidecar 用 **bun 打成单文件可执行**（内嵌 runtime，无外部 Node 依赖，SQLite 走 Node 内置 `node:sqlite`），经 Tauri `externalBin` 打包 —— `tauri build` 已能产出 **deb / rpm / AppImage** 安装包
 
 > 每个里程碑的交付、验证、踩坑都记录在 [`docs/`](docs/) 下的 `M*-status.md`，完整技术决策见 [`MikoLauncher-architecture.md`](MikoLauncher-architecture.md)。

@@ -117,6 +117,16 @@ export const UiLayoutSlotSchema = z.object({
 
 export type UiLayoutSlot = z.infer<typeof UiLayoutSlotSchema>
 
+/** 插件视图贡献的一个可点动作（M9-6 交互插件）：按钮 → sidecar 插件 handler（view.<key>.<action>）。 */
+export const UiViewActionSchema = z.object({
+  /** 动作 id（对应 sidecar 插件注册的 `view.<viewKey>.<action>` 方法名） */
+  id: z.string(),
+  /** 按钮显示文本 */
+  label: z.string(),
+})
+
+export type UiViewAction = z.infer<typeof UiViewActionSchema>
+
 /**
  * 视图插件贡献的一个「导航条目 + 页面」（M9-6 插件化 UI 骨架）。
  *
@@ -140,6 +150,11 @@ export const UiViewSchema = z.object({
   type: z.enum(['component', 'html']).optional(),
   /** 插件视图的 HTML 内容（type='html' 时必填） */
   html: z.string().optional(),
+  /**
+   * 插件视图的可点动作（M9-6 交互）：前端渲染按钮，点击调 `view_action` →
+   * sidecar 插件的 `view.<key>.<action>` handler，结果回显页面。让插件页具备真正交互。
+   */
+  actions: z.array(UiViewActionSchema).optional(),
   /** 是否禁用（隐藏导航项 + 不渲染页面）。 */
   disabled: z.boolean().optional(),
 })
@@ -167,5 +182,6 @@ export const entities = {
   UiTheme: UiThemeSchema,
   UiLayoutSlot: UiLayoutSlotSchema,
   UiView: UiViewSchema,
+  UiViewAction: UiViewActionSchema,
   UiManifest: UiManifestSchema,
 }
