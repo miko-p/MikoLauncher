@@ -12,6 +12,8 @@
 pub mod core {
     pub mod accounts;
     pub mod launch;
+    pub mod microsoft_oauth;
+    pub mod modrinth;
     pub mod secrets;
     pub mod sidecar;
 }
@@ -20,14 +22,18 @@ pub mod core {
 pub use core::launch::launch_smoke;
 
 use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tauri::Manager;
 
-/// 运行时共享状态：常驻 Node sidecar 的共享客户端。
+/// 运行时共享状态：常驻 Node sidecar 的共享客户端 + 运行中实例表。
 /// cwd 指向 plugin-host 源码目录（dev 用本地 tsx 启动）；生产换打包二进制。
 pub struct AppState {
     /// 共享 sidecar（内部 Mutex 保护串行访问）
     pub sidecar: crate::core::sidecar::SyncSidecar,
+    /// M11-3：正在运行的实例 → Java 进程 pid（0 = 已提交启动、尚未拉到 pid）。
+    /// 供防重复启动 + 前端状态列查询。非阻塞后台线程更新。
+    pub running: Arc<Mutex<std::collections::HashMap<String, u32>>>,
 }
 
 /// sidecar 启动规格：cwd、可执行文件、args、额外 env。
@@ -138,6 +144,74 @@ fn version_manifest() -> Result<Value, String> {
     Ok(json!({ "versions": versions }))
 }
 
+/// 轻量版本清单 —— 仅返回版本 id/type（不做 java_major 逐版 enrich）。
+/// M11：实例 ➕ 弹窗「自定义」版本下拉用。避免点开即慢 —— `version_manifest` 会逐条拉版本 json
+/// 补全前 20 条 java_major（20 个顺序阻塞网络请求），下拉选择根本用不到 java_major，故单独走这条
+/// （一次拉 Mojang 主清单即返回，秒开）。
+#[tauri::command]
+fn version_list() -> Result<Value, String> {
+    let versions = crate::core::launch::fetch_all_versions().map_err(|e| e.to_string())?;
+    Ok(json!({ "versions": versions }))
+}
+
+/// 校验单个版本 id 是否真实存在（在完整 Mojang 清单里精确匹配，不限于前 60）。
+/// M11：实例 ➕ 弹窗「自定义」点确定后先校验版本是否确实存在，再创建实例。
+#[tauri::command]
+fn version_check(payload: Value) -> Result<Value, String> {
+    let id = payload
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "缺少 id".to_string())?;
+    let hit = crate::core::launch::check_version_exists(id).map_err(|e| e.to_string())?;
+    let found = hit.is_some();
+    let version = hit.map(|v| json!({ "id": v.id, "type": v.version_type, "url": v.url, "releaseTime": v.release_time }));
+    Ok(json!({ "exists": found, "version": version }))
+}
+
+// ---- M13：Modrinth 模组/模组包搜索浏览（浏览式搜索 lighty 未暴露，这里直接调 Modrinth /v2/search） ----
+
+/// modrinth_search —— 搜索 Modrinth 项目。
+/// payload: { query?, projectType?:"modpack"|"mod"|"all", index?:"relevance"|"downloads"|"follows"|"newest"|"updated", limit?, offset? }
+#[tauri::command]
+async fn modrinth_search(payload: Value) -> Result<Value, String> {
+    let query = payload.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let facet = match payload.get("projectType").and_then(|v| v.as_str()).unwrap_or("all") {
+        "modpack" => crate::core::modrinth::SearchFacet::Modpack,
+        "mod" => crate::core::modrinth::SearchFacet::Mod,
+        _ => crate::core::modrinth::SearchFacet::All,
+    };
+    let index = payload.get("index").and_then(|v| v.as_str()).unwrap_or("relevance").to_string();
+    let limit = payload.get("limit").and_then(|v| v.as_u64()).unwrap_or(24).clamp(1, 100);
+    let offset = payload.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
+    let resp = crate::core::modrinth::search(&query, facet, &index, limit, offset).await?;
+    serde_json::to_value(resp).map_err(|e| e.to_string())
+}
+
+/// modrinth_project —— 单个 Modrinth 项目详情（slug 或 id）。
+#[tauri::command]
+async fn modrinth_project(payload: Value) -> Result<Value, String> {
+    let slug = payload.get("slug").and_then(|v| v.as_str()).ok_or_else(|| "缺少 slug".to_string())?;
+    let p = crate::core::modrinth::project(slug).await?;
+    serde_json::to_value(p).map_err(|e| e.to_string())
+}
+
+/// modrinth_project_versions —— 项目版本列表（选版本建实例）。
+#[tauri::command]
+async fn modrinth_project_versions(payload: Value) -> Result<Value, String> {
+    let slug = payload.get("slug").and_then(|v| v.as_str()).ok_or_else(|| "缺少 slug".to_string())?;
+    let limit = payload.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+    let versions = crate::core::modrinth::project_versions(slug, limit).await?;
+    serde_json::to_value(versions).map_err(|e| e.to_string())
+}
+
+/// modrinth_modpack_files —— 解析 .mrpack（zip）拿模组清单（创建实例后立即填进实例 mods 展示）。
+#[tauri::command]
+async fn modrinth_modpack_files(payload: Value) -> Result<Value, String> {
+    let file = payload.get("fileUrl").and_then(|v| v.as_str()).ok_or_else(|| "缺少 fileUrl".to_string())?;
+    let files = crate::core::modrinth::resolve_modpack_files(file).await?;
+    serde_json::to_value(files).map_err(|e| e.to_string())
+}
+
 /// 实例列表 —— 转发到 plugin-host sidecar 的 instance.list。
 #[tauri::command]
 fn instance_list(state: tauri::State<'_, AppState>) -> Result<Value, String> {
@@ -154,6 +228,30 @@ fn instance_create(state: tauri::State<'_, AppState>, payload: Value) -> Result<
 #[tauri::command]
 fn instance_update_account(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
     call_sidecar(&state, "instance.updateAccount", payload)
+}
+
+/// 设置/清除实例自定义图标 —— 转发到 sidecar instance.updateIcon（M11：data-URI base64）。
+#[tauri::command]
+fn instance_update_icon(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "instance.updateIcon", payload)
+}
+
+/// 设置/清除实例期望的 Java 主版本 —— 转发到 sidecar instance.updateJavaMajor（M12）。
+#[tauri::command]
+fn instance_update_java_major(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "instance.updateJavaMajor", payload)
+}
+
+/// 覆写实例的 mods 列表 —— 转发到 sidecar instance.updateMods（M13：模组包文件清单持久化展示）。
+#[tauri::command]
+fn instance_update_mods(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "instance.updateMods", payload)
+}
+
+/// 删除实例 —— 转发到 sidecar instance.remove。
+#[tauri::command]
+fn instance_remove(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    call_sidecar(&state, "instance.remove", payload)
 }
 
 /// 插件列表 —— 转发到 sidecar plugin.list（M7-5 Phase0 插件管理）。
@@ -216,10 +314,12 @@ fn instance_launch(
     state: tauri::State<'_, AppState>,
     payload: Value,
 ) -> Result<Value, String> {
+    eprintln!("[instance_launch] 收到启动请求");
     let instance_id = payload
         .get("instanceId")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "缺少 instanceId".to_string())?;
+    eprintln!("[instance_launch] instanceId={instance_id}");
     let jvm_args_raw: Vec<String> = payload
         .get("jvmArgs")
         .and_then(|v| v.as_array())
@@ -244,6 +344,27 @@ fn instance_launch(
         .as_str()
         .ok_or_else(|| "实例缺少 modLoader".to_string())?
         .to_string();
+    // M12：实例显式指定的期望 Java 主版本（可空）
+    let java_major_override = instance["instance"]["javaMajor"]
+        .as_u64()
+        .map(|m| m as i32);
+
+    // M13：实例绑定的 Modrinth 模组包（project + 选定 versionId）→ ModpackSource::ModrinthPinned
+    let modpack_ref = {
+        let mp = &instance["instance"]["modpack"];
+        let project = mp.get("project").and_then(|v| v.as_str());
+        let version_id = mp.get("versionId").and_then(|v| v.as_str());
+        match (project, version_id) {
+            (Some(p), Some(v)) => {
+                use lighty_modsloader::ModpackSource;
+                Some(ModpackSource::ModrinthPinned {
+                    project: p.to_string(),
+                    version: Some(v.to_string()),
+                })
+            }
+            _ => None,
+        }
+    };
 
     // 账号：优先用 payload.accountId（启动时显式指定），否则用实例绑定的 accountId，最后回退离线 Player
     let account_id = payload
@@ -282,30 +403,109 @@ fn instance_launch(
         .filter(|(k, _)| !k.is_empty())
         .collect();
 
-    // 本地真实启动（阻塞；worker 线程，Tauri 不会卡 UI）
-    let ctx = crate::core::launch::LaunchContext::new(Some(app.clone()));
-    let outcome = std::thread::spawn(move || {
-        // 在闭包内借用 jvm_options 构造 refs（lifetime 覆盖 block_on）
+    // M11-3：非阻塞启动 —— **不许 join() 等游戏退出**（同步 `spawn().join()` 会占用 Tauri command
+    // 线程直到游戏结束 → 游戏运行期间 UI「崩溃/没反应」）。改为：game 放独立线程、command 立即返回，状态经 `launch:status` 事件推前端。
+    {
+        let mut guard = state
+            .running
+            .lock()
+            .map_err(|_| "running 表锁定失败".to_string())?;
+        if guard.contains_key(instance_id) {
+            return Err("该实例已在运行".to_string());
+        }
+        guard.insert(instance_id.to_string(), 0); // 0 = 已提交、尚未拉到 pid
+    }
+
+    let instance_id_owned = instance_id.to_string();
+    let name_owned = name;
+    let version_owned = version_id;
+    let loader_owned = mod_loader;
+    let identity_owned = identity;
+    let java_major_owned = java_major_override;
+    let modpack_owned = modpack_ref;
+
+    // launched 回调：游戏拉到 pid 时，更新 running 表 + 推「运行中」状态给前端状态列
+    let running_launch = state.running.clone();
+    let app_launch = app.clone();
+    let id_launch = instance_id_owned.clone();
+    let ctx = crate::core::launch::LaunchContext::new(Some(app.clone()))
+        .with_on_launched(move |pid| {
+            eprintln!("[launch:status] emit started pid={pid} (instance={id_launch})");
+            if let Ok(mut g) = running_launch.lock() {
+                g.insert(id_launch.clone(), pid);
+            }
+            let _ = app_launch.emit(
+                "launch:status",
+                json!({ "instanceId": id_launch, "action": "started", "pid": pid }),
+            );
+        });
+
+    // 常驻后台任务跑游戏：直接在 Tauri 全局 async runtime 上 `.await` launch_game。
+    // **绝对不要** `std::thread::spawn + 自建 tokio runtime + block_on`——lighty run 内部用
+    // spawn_blocking/block_in_place，自建 runtime 在 tauri 异步上下文的 block_on 返回后 drop 会 panic
+    // （"Cannot drop a runtime in a context where blocking is not allowed"），导致 joined=false、
+    // 前端 `launch:status` 报 error（本 session 用户实测「26.x 启动 emit error」即此）。
+    // launch_game 本身只 `.await`（tokio::select!），在任何 async runtime 上都能跑；游戏生命周期
+    // 内该 task 挂着（async，不阻塞 UI），结束经 launch:status 事件 + running 表清理推给前端。
+    let running_done = state.running.clone();
+    let app_done = app.clone();
+    let id_done = instance_id_owned.clone();
+    tauri::async_runtime::spawn(async move {
+        // 立即推「运行中」：告诉前端该实例已成功提交、游戏在跑（pid 待收尾时才有真实值）
+        eprintln!("[launch:status] emit started(immediate) instance={id_done}");
+        let _ = app_done.emit(
+            "launch:status",
+            json!({ "instanceId": id_done, "action": "started", "pid": 0 }),
+        );
+
+        let thread_name = name_owned;
+        let thread_version = version_owned;
+        let thread_loader = loader_owned;
+        let thread_identity = identity_owned;
+        let thread_java_major = java_major_owned;
+        let thread_modpack = modpack_owned;
+        let thread_ctx = ctx.clone();
         let jvm_refs: Vec<(&str, String)> = jvm_options
             .iter()
             .map(|(k, v)| (k.as_str(), v.clone()))
             .collect();
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
-        rt.block_on(crate::core::launch::launch_game(
-            &ctx, &name, &version_id, &mod_loader, &identity, &jvm_refs,
-        ))
-    })
-    .join()
-    .map_err(|_| "启动线程 panic".to_string())??;
+        let result = crate::core::launch::launch_game(
+            &thread_ctx,
+            &thread_name,
+            &thread_version,
+            &thread_loader,
+            &thread_identity,
+            &jvm_refs,
+            thread_java_major,
+            thread_modpack,
+        )
+        .await;
 
-    Ok(json!({
-        "pid": outcome.pid,
-        "javaVersion": outcome.java_version,
-        "jvmArgs": outcome.jvm_args,
-    }))
+        eprintln!("[launch:status] launch_game 返回 instance={id_done}");
+        let msg = match result {
+            Ok(o) => json!({ "instanceId": id_done, "action": "exit", "pid": o.pid }),
+            Err(e) => json!({ "instanceId": id_done, "action": "error", "message": e }),
+        };
+        eprintln!("[launch:status] emit {} (instance={id_done})", msg["action"]);
+        let _ = app_done.emit("launch:status", msg);
+        if let Ok(mut g) = running_done.lock() {
+            g.remove(&id_done);
+        }
+    });
+
+    Ok(json!({ "started": true, "instanceId": instance_id_owned }))
+}
+
+/// 当前运行中的实例列表（M11-3：供前端启动器挂载时恢复状态列的运行状态）。
+/// 返回 [{ instanceId, pid }]（pid 0 = 已提交启动、尚未拉到 pid）。
+#[tauri::command]
+fn launch_status(state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    let guard = state.running.lock().map_err(|_| "running 表锁定失败".to_string())?;
+    let running: Vec<Value> = guard
+        .iter()
+        .map(|(id, pid)| json!({ "instanceId": id, "pid": pid }))
+        .collect();
+    Ok(json!({ "running": running }))
 }
 
 /// 账号列表 —— Rust 本地账号存储。
@@ -331,33 +531,86 @@ fn account_login_offline(payload: Value) -> Result<Value, String> {
 
 /// 微软账号登录 —— OAuth 设备流（阻塞直到用户在浏览器授权）。
 /// device code 通过 `account:device-code` 事件推给前端，提示用户去浏览器输入。
+///
+/// 必须是 **async command**（不要用 std::thread::spawn + block_on + .join 阻塞主线程）：
+/// 设备流是长轮询，若在同步 command 里阻塞 Tauri 主事件循环，`emit` 的设备码事件和
+/// 前端的 invoke 响应都得不到调度——会导致「点了没反应、验证码也不显示」。
 #[tauri::command]
-fn account_login_microsoft(app: tauri::AppHandle, payload: Value) -> Result<Value, String> {
+async fn account_login_microsoft(app: tauri::AppHandle) -> Result<Value, String> {
+    eprintln!("[ms-login] account_login_microsoft command invoked (async)");
     crate::core::launch::ensure_app_state()?;
-    let _ = payload;
     let handle = app.clone();
 
-    // 异步设备流（阻塞轮询），device code 同步推送给前端
-    let outcome = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime for ms login");
-        let handle2 = handle.clone();
-        rt.block_on(crate::core::accounts::login_microsoft(move |code, uri| {
-            let _ = handle2.emit(
-                "account:device-code",
-                json!({ "userCode": code, "verificationUri": uri }),
-            );
-        }))
+    // 异步设备流（长轮询等待授权）；device code 经 emit 即时推送到前端
+    eprintln!("[ms-login] 开始设备流 authenticate（等待微软返回 device code）…");
+    let outcome = crate::core::accounts::login_microsoft(move |code, uri| {
+        let _ = handle.emit(
+            "account:device-code",
+            json!({ "userCode": code, "verificationUri": uri }),
+        );
     })
-    .join()
-    .map_err(|_| "微软登录线程 panic".to_string())??;
+    .await?;
+    eprintln!("[ms-login] 设备流完成，准备持久化");
 
     // 持久化
     let store = crate::core::accounts::AccountStore::open()?;
     let saved = store.upsert(outcome.clone())?;
     Ok(json!({ "account": saved.to_public_json() }))
+}
+
+/// Microsoft 登录 —— 授权码流（PCL 式）：生成登录 URL 并弹出系统浏览器（不等待），
+/// 返回 url + redirectUri 供前端引导用户「在浏览器登录后，把地址栏 URL 粘回」。
+#[tauri::command]
+fn account_login_microsoft_url() -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let session = crate::core::microsoft_oauth::create_login_session();
+    open_in_browser(&session.url);
+    eprintln!("[ms-oauth] 已生成登录 URL 并尝试打开系统浏览器");
+    Ok(json!({ "url": session.url, "redirectUri": session.redirect_uri }))
+}
+
+/// Microsoft 登录 —— 用户粘回授权后的 URL/裸 code，完成剩余交换并入库。
+#[tauri::command]
+async fn account_login_microsoft_code(code_or_url: String) -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    eprintln!("[ms-oauth] 收到用户粘回的授权码输入");
+    let entry = crate::core::microsoft_oauth::finish_login(&code_or_url).await?;
+    let store = crate::core::accounts::AccountStore::open()?;
+    let saved = store.upsert(entry.clone())?;
+    Ok(json!({ "account": saved.to_public_json() }))
+}
+
+/// Microsoft 登录 —— PCL 式全自动（自注册公共应用 + loopback 回跳）：
+/// 绑定本地监听 → 弹系统浏览器到 v2.0 authorize → 用户授权后浏览器自动回跳本地
+/// 捕获 code → 完成 v2.0 token 交换 + MC 令牌链 → 入库。全程无需粘 URL。
+#[tauri::command]
+async fn account_login_microsoft_loopback() -> Result<Value, String> {
+    crate::core::launch::ensure_app_state()?;
+    let client_id = crate::core::accounts::default_ms_client_id()?;
+    eprintln!("[ms-oauth] loopback 登录开始（client_id 长度 {}）", client_id.len());
+
+    let listener = crate::core::microsoft_oauth::bind_loopback().await?;
+    let url = crate::core::microsoft_oauth::loopback_authorize_url(&client_id);
+    open_in_browser(&url);
+    eprintln!("[ms-oauth] 已打开系统浏览器: {url}");
+
+    let code = crate::core::microsoft_oauth::wait_loopback_code_on(&listener).await?;
+    let entry = crate::core::microsoft_oauth::finish_loopback_login(&client_id, &code).await?;
+    let store = crate::core::accounts::AccountStore::open()?;
+    let saved = store.upsert(entry.clone())?;
+    Ok(json!({ "account": saved.to_public_json() }))
+}
+
+/// 用系统默认浏览器打开 URL（跨平台；不等待进程结束）。
+fn open_in_browser(url: &str) {
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd")
+        .args(["/c", "start", "", url])
+        .spawn();
 }
 
 /// 账号删除 —— 移除指定账号。
@@ -468,7 +721,12 @@ pub fn run() {
                     ))
                 }
             };
-            app.manage(AppState { sidecar: app_state });
+            app.manage(AppState {
+                sidecar: app_state,
+                running: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
+            });
 
             // 通知前端就绪
             let handle = app.handle().clone();
@@ -480,10 +738,21 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             version_manifest,
+            version_list,
+            version_check,
+            modrinth_search,
+            modrinth_project,
+            modrinth_project_versions,
+            modrinth_modpack_files,
             instance_list,
             instance_create,
             instance_update_account,
+            instance_update_icon,
+            instance_update_java_major,
+            instance_update_mods,
+            instance_remove,
             instance_launch,
+            launch_status,
             plugin_list,
             plugin_enable,
             plugin_disable,
@@ -492,6 +761,9 @@ pub fn run() {
             account_list,
             account_login_offline,
             account_login_microsoft,
+            account_login_microsoft_url,
+            account_login_microsoft_code,
+            account_login_microsoft_loopback,
             account_remove,
             account_refresh,
             emit_download_progress,

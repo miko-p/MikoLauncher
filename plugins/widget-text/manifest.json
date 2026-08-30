@@ -1,0 +1,9 @@
+{
+  "name": "widget-text",
+  "version": "1.0.0",
+  "api": 1,
+  "publisher": "miko-launcher",
+  "type": "layout",
+  "slot": "home-widget",
+  "hash": "bad8a5e3aa72d97ffdfdb88a51bdbbe16e0bd96efba58069b120f6abf7ef2097"
+}

@@ -22,6 +22,10 @@ import {
   type Instance,
   type Account,
   type UiManifest,
+  type ModrinthProject,
+  type ModrinthVersion,
+  type ModpackFile,
+  type Mod,
 } from '@miko-launcher/shared'
 
 /** invoke 的强类型返回：失败时抛 Error(带 message)。 */
@@ -41,24 +45,48 @@ export async function createInstance(payload: {
   versionId: string
   modLoader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge'
   accountId?: string
+  javaMajor?: number
+  modpack?: {
+    provider: 'modrinth'
+    project: string
+    title: string
+    iconUrl?: string
+    versionId: string
+    versionNumber: string
+    fileUrl?: string
+  }
 }): Promise<Instance> {
   const data = await call<{ instance: Instance }>('instance_create', { payload })
   return instanceCreateDataSchema.parse(data).instance
 }
 
-/** instance.launch —— Rust 本地真实启动，返回结构化数据。 */
+/** launch:status 事件负载（M11-3：游戏运行状态推前端状态列）。 */
+export type LaunchStatusEvent = {
+  instanceId: string
+  action: 'started' | 'exit' | 'error'
+  pid?: number
+  message?: string
+}
+
+/** instance.launch —— M11-3 非阻塞启动：提交即返回 {started}，运行状态经 launch:status 事件推前端。 */
 export async function launchInstance(payload: {
   instanceId: string
   /** 可选：启动时指定账号 id（否则用实例绑定账号/离线） */
   accountId?: string
   jvmArgs?: string[]
   offline?: boolean
-}): Promise<{ pid: number; javaVersion: string; jvmArgs: string[] }> {
-  const data = await call<{ pid: number; javaVersion: string; jvmArgs: string[] }>(
+}): Promise<{ started: boolean; instanceId: string }> {
+  const data = await call<{ started: boolean; instanceId: string }>(
     'instance_launch',
     { payload },
   )
   return instanceLaunchDataSchema.parse(data)
+}
+
+/** launch.status —— 查询当前运行中的实例（前端挂载时恢复状态列）。 */
+export async function getLaunchStatus(): Promise<{ instanceId: string; pid: number }[]> {
+  const data = await call<{ running: { instanceId: string; pid: number }[] }>('launch_status', {})
+  return data.running
 }
 
 /** instance.updateAccount —— 绑定/解绑实例关联账号（M7 持久化）。accountId 传 undefined 解绑。 */
@@ -72,16 +100,103 @@ export async function updateInstanceAccount(
   return instanceUpdateAccountDataSchema.parse(data).instance
 }
 
-/** version_manifest —— 真实拉取 Mojang 版本清单（Rust 内核）。 */
+/** instance.updateIcon —— 设置/清除实例自定义图标（M11：data-URI base64）。icon 传空/undefined 清除。 */
+export async function updateInstanceIcon(
+  id: string,
+  icon?: string | null,
+): Promise<Instance> {
+  const data = await call<{ instance: Instance }>('instance_update_icon', {
+    payload: { id, icon },
+  })
+  return instanceUpdateAccountDataSchema.parse(data).instance
+}
+
+/** instance.updateJavaMajor —— 设置/清除实例期望的 Java 主版本（M12：实例详情页可选）。javaMajor 传 null/undefined 清除。 */
+export async function updateInstanceJavaMajor(
+  id: string,
+  javaMajor?: number | null,
+): Promise<Instance> {
+  const data = await call<{ instance: Instance }>('instance_update_java_major', {
+    payload: { id, javaMajor },
+  })
+  return instanceUpdateAccountDataSchema.parse(data).instance
+}
+
+/** instance.remove —— 删除实例。返回是否删除成功。 */
+export async function removeInstance(id: string): Promise<boolean> {
+  const data = await call<{ removed: boolean }>('instance_remove', { payload: { id } })
+  return data.removed
+}
+
+/** version_list —— 版本下拉用轻量清单（Rust 内核，仅由 main manifest 一次返回，不逐版 enrich，秒开）。 */
 export async function fetchVersions(): Promise<
   { id: string; type: string; url: string; releaseTime: string; javaMajor?: number | null }[]
 > {
-  const data = await call<{ versions: unknown[] }>('version_manifest')
+  const data = await call<{ versions: unknown[] }>('version_list')
   // 轻量校验：至少要有 versions 数组；条目字段由调用方按需收窄
   if (!data || !Array.isArray(data.versions)) {
-    throw new Error('version_manifest 返回异常')
+    throw new Error('version_list 返回异常')
   }
   return data.versions as { id: string; type: string; url: string; releaseTime: string }[]
+}
+
+/** version.check —— 校验某个版本 id 是否真实存在（在完整 Mojang 清单里精确匹配）。 */
+export async function checkVersionExists(
+  id: string,
+): Promise<{ exists: boolean; version?: { id: string; type: string; url: string; releaseTime: string } }> {
+  return call('version_check', { payload: { id } })
+}
+
+/** modrinth.search —— 搜索 Modrinth 项目（模组/模组包）。index 排序：relevance/downloads/follows/newest/updated。 */
+export async function modrinthSearch(params: {
+  query?: string
+  projectType?: 'modpack' | 'mod' | 'all'
+  index?: 'relevance' | 'downloads' | 'follows' | 'newest' | 'updated'
+  limit?: number
+  offset?: number
+}): Promise<{
+  hits: ModrinthProject[]
+  total_hits: number
+  offset: number
+  limit: number
+}> {
+  const data = await call<{ hits: ModrinthProject[]; total_hits: number; offset: number; limit: number }>(
+    'modrinth_search',
+    { payload: { query: params.query ?? '', projectType: params.projectType ?? 'modpack', index: params.index ?? 'relevance', limit: params.limit ?? 24, offset: params.offset ?? 0 } },
+  )
+  return data
+}
+
+/** modrinth.project —— 单个 Modrinth 项目详情（按 slug 或 id）。 */
+export async function modrinthProject(slug: string): Promise<ModrinthProject> {
+  return call<ModrinthProject>('modrinth_project', { payload: { slug } })
+}
+
+/** modrinth.projectVersions —— 项目版本列表（选版本建实例）。 */
+export async function modrinthProjectVersions(
+  slug: string,
+  limit = 50,
+): Promise<ModrinthVersion[]> {
+  return call<ModrinthVersion[]>('modrinth_project_versions', { payload: { slug, limit } })
+}
+
+/** modrinth.modpackFiles —— 下载并解析 `.mrpack`（zip），返回模组包文件清单（M13：创建实例后填进实例 mods 展示）。 */
+export async function modrinthModpackFiles(fileUrl: string): Promise<ModpackFile[]> {
+  const data = await call<unknown[]>('modrinth_modpack_files', { payload: { fileUrl } })
+  // 轻量校验：条目为 ModpackFile 形状，字段由调用方按需收窄
+  const files =
+    data && Array.isArray(data)
+      ? (data as ModpackFile[])
+      : []
+  return files
+}
+
+/** instance.updateMods —— 直接覆写实例的 mods 列表（M13：模组包文件清单持久化展示）。 */
+export async function updateInstanceMods(id: string, mods: Mod[]): Promise<Instance> {
+  const data = await call<{ instance: Instance }>('instance_update_mods', {
+    payload: { id, mods },
+  })
+  return instanceUpdateAccountDataSchema.parse(data).instance
 }
 
 /** account.list —— 账号列表。 */
@@ -102,6 +217,26 @@ export async function loginMicrosoft(): Promise<Account> {
   return accountLoginMicrosoftDataSchema.parse(data).account
 }
 
+/** M10-4：授权码流（PCL 式）—— 生成微软登录 URL 并自动在系统浏览器打开；返回 url + redirectUri。 */
+export async function loginMicrosoftUrl(): Promise<{ url: string; redirectUri: string }> {
+  const data = await call<{ url: string; redirectUri: string }>('account_login_microsoft_url', {})
+  return data
+}
+
+/** M10-4：授权码流 —— 用户粘回授权后的 URL/裸 code，完成登录并返回账号。 */
+export async function finishMicrosoftLogin(codeOrUrl: string): Promise<Account> {
+  const data = await call<{ account: Account }>('account_login_microsoft_code', {
+    codeOrUrl,
+  })
+  return accountLoginMicrosoftDataSchema.parse(data).account
+}
+
+/** M10-5：PCL 式全自动登录（自注册公共应用 + v2.0 loopback 回跳）——点登录自动弹浏览器并在授权后自动捕获完成，返回账号。 */
+export async function loginMicrosoftLoopback(): Promise<Account> {
+  const data = await call<{ account: Account }>('account_login_microsoft_loopback', {})
+  return accountLoginMicrosoftDataSchema.parse(data).account
+}
+
 /** account.remove —— 删除账号。 */
 export async function removeAccount(id: string): Promise<boolean> {
   const data = await call<{ removed: boolean }>('account_remove', { payload: { id } })
@@ -112,12 +247,12 @@ export async function removeAccount(id: string): Promise<boolean> {
 export async function refreshAccount(id: string): Promise<{
   account: Account
   needsReauth: boolean
-  message?: string
+  message?: string | null
 }> {
   const data = await call<{
     account: Account
     needsReauth: boolean
-    message?: string
+    message?: string | null
   }>('account_refresh', { payload: { id } })
   return accountRefreshDataSchema.parse(data)
 }

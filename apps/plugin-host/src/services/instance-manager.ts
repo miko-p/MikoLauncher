@@ -21,6 +21,9 @@ interface InstanceRow {
   dir: string
   mods: string
   account_id: string | null
+  icon: string | null
+  java_major: number | null
+  modpack: string | null
   created_at: string
 }
 
@@ -33,6 +36,9 @@ function rowToInstance(r: InstanceRow): Instance {
     dir: r.dir,
     mods: JSON.parse(r.mods),
     accountId: r.account_id ?? undefined,
+    icon: r.icon ?? undefined,
+    javaMajor: r.java_major ?? undefined,
+    modpack: r.modpack ? (JSON.parse(r.modpack) as Instance['modpack']) : undefined,
     createdAt: r.created_at,
   }
 }
@@ -74,13 +80,16 @@ export class InstanceManagerService extends Service {
       dir: `instances/${id}`,
       mods: [],
       accountId: params.accountId,
+      icon: undefined,
+      javaMajor: params.javaMajor,
+      modpack: params.modpack,
       createdAt: new Date().toISOString(),
     }
     const validated = InstanceSchema.parse(instance) // 用 shared schema 自检
     this.db.raw
       .prepare(
-        `INSERT INTO instances (id, name, version_id, mod_loader, dir, mods, account_id, created_at)
-         VALUES (@id, @name, @versionId, @modLoader, @dir, @mods, @accountId, @createdAt)`,
+        `INSERT INTO instances (id, name, version_id, mod_loader, dir, mods, account_id, icon, java_major, modpack, created_at)
+         VALUES (@id, @name, @versionId, @modLoader, @dir, @mods, @accountId, @icon, @javaMajor, @modpack, @createdAt)`,
       )
       .run({
         id: validated.id,
@@ -90,6 +99,9 @@ export class InstanceManagerService extends Service {
         dir: validated.dir,
         mods: JSON.stringify(validated.mods),
         accountId: validated.accountId ?? null,
+        icon: validated.icon ?? null,
+        javaMajor: validated.javaMajor ?? null,
+        modpack: validated.modpack ? JSON.stringify(validated.modpack) : null,
         createdAt: validated.createdAt,
       })
     return { instance: validated }
@@ -119,6 +131,53 @@ export class InstanceManagerService extends Service {
       ...row,
       account_id: bound,
     } as InstanceRow)
+    return { instance: updated }
+  }
+
+  /**
+   * 设置/清除实例自定义图标（M11：data-URI base64）。`icon` 传空串/null → 清理（回退内置土块占位）。
+   * 返回更新后的实例；不存在返回 { instance: null }。
+   */
+  updateIcon(id: string, icon: string | null | undefined) {
+    const row = this.db.raw.prepare('SELECT * FROM instances WHERE id = ?').get(id) as
+      | InstanceRow
+      | undefined
+    if (!row) return { instance: null }
+    const value = icon && icon.trim() !== '' ? icon : null
+    this.db.raw.prepare('UPDATE instances SET icon = ? WHERE id = ?').run(value, id)
+    const updated = rowToInstance({ ...row, icon: value } as InstanceRow)
+    return { instance: updated }
+  }
+
+  /**
+   * 设置/清除实例期望的 Java 主版本（M12：实例详情页 Java 版本选择）。
+   * `javaMajor` 传 null/undefined → 清除（回退按 MC 版本要求自动选 JRE）。
+   * 返回更新后的实例；不存在返回 { instance: null }。
+   */
+  updateJavaMajor(id: string, javaMajor: number | null | undefined) {
+    const row = this.db.raw.prepare('SELECT * FROM instances WHERE id = ?').get(id) as
+      | InstanceRow
+      | undefined
+    if (!row) return { instance: null }
+    const value = javaMajor && javaMajor > 0 ? javaMajor : null
+    this.db.raw.prepare('UPDATE instances SET java_major = ? WHERE id = ?').run(value, id)
+    const updated = rowToInstance({ ...row, java_major: value } as InstanceRow)
+    return { instance: updated }
+  }
+
+  /**
+   * 直接覆写实例的 mods 列表（M13：下载模组包后立即把解析出的模组清单填进实例 mods 展示）。
+   * 文件本体仍由首次启动时 lighty 实装；这里只持久化清单（列表展示用）。
+   * 返回更新后的实例；不存在返回 { instance: null }。
+   */
+  updateMods(id: string, mods: unknown[]) {
+    const row = this.db.raw.prepare('SELECT * FROM instances WHERE id = ?').get(id) as
+      | InstanceRow
+      | undefined
+    if (!row) return { instance: null }
+    const list = Array.isArray(mods) ? mods : []
+    this.db.raw.prepare('UPDATE instances SET mods = ? WHERE id = ?').run(JSON.stringify(list), id)
+    const updated = rowToInstance({ ...row, mods: JSON.stringify(list) } as InstanceRow)
     return { instance: updated }
   }
 }

@@ -7,10 +7,11 @@ import type { AccountDeviceCode } from '@miko-launcher/shared'
 const store = useAccountStore()
 
 const offlineName = ref('')
-const loggingMs = ref(false)
 const deviceCode = ref<AccountDeviceCode | null>(null)
 /** M9-2：正在检查有效性的账号 id（用于按钮 loading 态）。 */
 const checkingId = ref<string | null>(null)
+/** M10-4：微软登录失败原因（就地醒目展示，避免「点了没反应」）。 */
+const msError = ref<string | null>(null)
 let unlisten: (() => void) | undefined
 
 async function submitOffline() {
@@ -19,16 +20,17 @@ async function submitOffline() {
   if (!store.error) offlineName.value = ''
 }
 
+/** 微软登录（设备码流）：回调后端 account_login_microsoft，后端 emit account:device-code → 前端展示
+ *  验证码 + verification uri，用户在网页授权后后端自动轮询完成登录。无「code 秒过期」坑（替代已废弃的手动粘 URL）。 */
 async function loginMs() {
-  loggingMs.value = true
+  msError.value = null
   deviceCode.value = null
-  try {
-    await store.addMicrosoft()
-  } finally {
-    loggingMs.value = false
-    deviceCode.value = null
-  }
+  await store.deviceLogin()
+  if (store.error) msError.value = store.error
 }
+
+/** 用户粘回授权 URL 的旧交互已废弃（手动粘 code 实测 2 秒内即过期）；finishing 仅用于按钮 disabled 态。 */
+const finishing = ref(false)
 
 /** M9-2：显式检查单个微软账号的 refresh 凭据是否仍有效。 */
 async function check(accountId: string) {
@@ -86,9 +88,17 @@ onUnmounted(() => unlisten?.())
       </form>
 
       <h3>添加微软账号</h3>
-      <button class="ms" @click="loginMs" :disabled="loggingMs">
-        {{ loggingMs ? '登录中…' : '用 Microsoft 账号登录' }}
+      <!-- M10-6b：微软登录走「设备码流」——点击后展示验证码 + verification 链接，用户在网页授权即可，
+           无需粘 URL（手动粘官方 client 的桌面向 code 已被微软实测证伪：2 秒内复制都报 code has expired）。 -->
+      <button class="ms" @click="loginMs" :disabled="!!deviceCode || finishing">
+        {{ deviceCode ? '等待你在网页授权…' : '用 Microsoft 账号登录' }}
       </button>
+
+      <!-- 登录失败就地醒目提示（避免「点了没反应」） -->
+      <p v-if="msError" class="ms-error">
+        ⚠ {{ msError }}<br />
+        <span class="ms-error-hint">检查上方原因；若提示 client/租户无效，请见运行终端的 <code>[ms-login]</code> 日志。</span>
+      </p>
       <div v-if="deviceCode" class="device-code">
         <p>请在浏览器打开 <code>{{ deviceCode.verificationUri }}</code> 并输入验证码：</p>
         <strong class="code">{{ deviceCode.userCode }}</strong>
@@ -116,13 +126,13 @@ onUnmounted(() => unlisten?.())
           <button
             v-if="acc.type === 'microsoft'"
             class="check"
-            :disabled="checkingId === acc.id || loggingMs"
+            :disabled="checkingId === acc.id || !!store.msLoginUrl || finishing"
             @click="check(acc.id)"
           >
             {{ checkingId === acc.id ? '检查中…' : '检查' }}
           </button>
           <!-- M9-2：失效时提供重新登录入口（走设备流） -->
-          <button v-if="store.isInvalidated(acc.id)" class="relogin" :disabled="loggingMs" @click="loginMs">
+          <button v-if="store.isInvalidated(acc.id)" class="relogin" :disabled="!!store.msLoginUrl || finishing" @click="loginMs">
             重新登录
           </button>
           <button class="remove" @click="store.remove(acc.id)">删除</button>
@@ -146,6 +156,52 @@ onUnmounted(() => unlisten?.())
 button { padding: 0.35rem 0.9rem; border-radius: var(--radius, 8px); border: none; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 .ms { background: var(--accent, #39c5bb); color: #111; }
+/* M10-4：微软登录失败就地提示（醒目红条） */
+.ms-error {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.8rem;
+  color: var(--danger, #e5484d);
+  background: rgba(229, 72, 77, 0.1);
+  border: 1px solid rgba(229, 72, 77, 0.35);
+  border-radius: var(--radius, 8px);
+  font-size: 0.85rem;
+}
+.ms-error-hint { color: var(--text-dim, #8b8490); font-size: 0.78rem; }
+.ms-error code { color: var(--accent, #39c5bb); }
+/* M10-5：手动兜底链接按钮 */
+.link-btn {
+  margin-top: 0.6rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent, #77636c);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* M10-4：请求中提示（中性色） */
+.ms-info {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.8rem;
+  color: var(--text, #3a3436);
+  background: rgba(74, 144, 226, 0.08);
+  border: 1px solid rgba(74, 144, 226, 0.3);
+  border-radius: var(--radius, 8px);
+  font-size: 0.85rem;
+}
+/* M10-4：授权码流「粘贴 URL + 完成登录」行 */
+.ms-finish { margin-top: 0.6rem; }
+.ms-finish-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.ms-url {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-elevated, #fdfdfd);
+  color: var(--text, #3a3436);
+  border: 1px solid var(--border, #c9bec3);
+  border-radius: var(--radius, 8px);
+  font-size: 0.85rem;
+}
 .device-code { margin-top: 0.8rem; padding: 0.8rem; background: rgba(74,144,226,0.1); border-radius: var(--radius, 8px); }
 .code { font-size: 1.4rem; letter-spacing: 0.3rem; color: var(--accent, #39c5bb); }
 .list { list-style: none; padding: 0; }

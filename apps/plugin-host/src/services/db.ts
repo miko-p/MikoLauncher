@@ -72,6 +72,27 @@ function migrate(raw: DatabaseSync) {
       created_at  TEXT NOT NULL
     );
   `)
+  // M11：为已有库补 icon 列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列）
+  const cols = raw
+    .prepare('PRAGMA table_info(instances)')
+    .all() as unknown as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'icon')) {
+    raw.exec('ALTER TABLE instances ADD COLUMN icon TEXT')
+  }
+  // M12：为已有库补 java_major 列（实例期望 Java 主版本，可空）
+  const cols2 = raw
+    .prepare('PRAGMA table_info(instances)')
+    .all() as unknown as Array<{ name: string }>
+  if (!cols2.some((c) => c.name === 'java_major')) {
+    raw.exec('ALTER TABLE instances ADD COLUMN java_major INTEGER')
+  }
+  // M13：为已有库补 modpack 列（实例绑定的 Modrinth 模组包，JSON 文本，可空）
+  const cols3 = raw
+    .prepare('PRAGMA table_info(instances)')
+    .all() as unknown as Array<{ name: string }>
+  if (!cols3.some((c) => c.name === 'modpack')) {
+    raw.exec('ALTER TABLE instances ADD COLUMN modpack TEXT')
+  }
 }
 
 /** 供测试/上下文隔离用：重置单例。 */

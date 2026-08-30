@@ -6,7 +6,16 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Account } from '@miko-launcher/shared'
-import { listAccounts, loginOffline, loginMicrosoft, removeAccount, refreshAccount } from '../api'
+import {
+  listAccounts,
+  loginOffline,
+  removeAccount,
+  refreshAccount,
+  loginMicrosoft,
+  loginMicrosoftUrl,
+  finishMicrosoftLogin,
+  loginMicrosoftLoopback,
+} from '../api'
 
 export const useAccountStore = defineStore('accounts', () => {
   const accounts = ref<Account[]>([])
@@ -57,12 +66,53 @@ export const useAccountStore = defineStore('accounts', () => {
     }
   }
 
-  /** 微软设备流登录（阻塞直到用户授权；刷新列表）。登录成功即代表凭据新鲜，清除失效标记。 */
-  async function addMicrosoft() {
+  /** 设备码流登录（M10-6 修正——替代已废弃的「手动粘 URL」）：回调 account_login_microsoft（lighty
+   *  device code + consumers 租户）。前端 account:device-code 事件把 user_code + verification_uri 推来展示；
+   *  本调用是阻塞式长轮询，等用户在网页授权完成即返回。成功即清失效标记并刷新列表。 */
+  async function deviceLogin() {
     error.value = null
     try {
       await loginMicrosoft()
       invalidated.value = {}
+      msLoginUrl.value = null
+      await fetchAccounts()
+    } catch (e) {
+      error.value = (e as Error).message
+    }
+  }
+
+  /** 开始微软登录（授权码流 M10-4，PCL 式）：生成并自动打开系统浏览器登录页，保存 url（供前端引导粘贴 URL）。 */
+  const msLoginUrl = ref<string | null>(null)
+  async function beginMicrosoftLogin() {
+    error.value = null
+    try {
+      const { url } = await loginMicrosoftUrl()
+      msLoginUrl.value = url
+    } catch (e) {
+      error.value = (e as Error).message
+    }
+  }
+
+  /** 用户粘回授权后的 URL/裸 code，完成登录并刷新列表。成功即清除失效标记。 */
+  async function finishMicrosoft(codeOrUrl: string) {
+    error.value = null
+    try {
+      await finishMicrosoftLogin(codeOrUrl)
+      invalidated.value = {}
+      msLoginUrl.value = null
+      await fetchAccounts()
+    } catch (e) {
+      error.value = (e as Error).message
+    }
+  }
+
+  /** M10-5：PCL 式全自动登录（loopback）——阻塞直到浏览器授权回跳并入库。成功即清除失效标记。 */
+  async function loopbackMicrosoft() {
+    error.value = null
+    try {
+      await loginMicrosoftLoopback()
+      invalidated.value = {}
+      msLoginUrl.value = null
       await fetchAccounts()
     } catch (e) {
       error.value = (e as Error).message
@@ -110,7 +160,11 @@ export const useAccountStore = defineStore('accounts', () => {
     isInvalidated,
     fetchAccounts,
     addOffline,
-    addMicrosoft,
+    beginMicrosoftLogin,
+    deviceLogin,
+    finishMicrosoft,
+    loopbackMicrosoft,
+    msLoginUrl,
     remove,
     check,
   }

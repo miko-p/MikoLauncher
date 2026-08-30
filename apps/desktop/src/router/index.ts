@@ -6,6 +6,7 @@ const builtinRoutes: RouteRecordRaw[] = [
   { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
   { path: '/download', name: 'download', component: () => import('../views/DownloadView.vue') },
   { path: '/instances', name: 'instances', component: () => import('../views/InstancesView.vue') },
+  { path: '/instances/:id', name: 'instanceDetail', component: () => import('../views/InstanceDetailView.vue') },
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
   { path: '/plugins', name: 'plugins', component: () => import('../views/PluginsView.vue') },
 ]

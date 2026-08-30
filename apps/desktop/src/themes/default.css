@@ -1,17 +1,37 @@
-/**
- * 内置主题 —— 通过 CSS 变量注入（蓝图「十、主题插件」）
- * 主题插件只需覆盖这些变量即可换肤；工具类变量供 Vue 组件消费。
- *
- * 本文件由 src/main.ts 引入，作为默认主题。插件主题用 <link> 覆盖同名变量。
+/** Root palette — light rose theme matching miko-launcher-interact.png design.
+ *  主题插件只需覆盖这些变量即可换肤；工具类变量供 Vue 组件消费。
+ *  本文件由 src/main.ts 引入，作为默认主题。插件主题用 <link> 覆盖同名变量。
  */
-
 :root {
-  --bg: #12151b;
-  --bg-elevated: #1b1f27;
-  --text: #e4e7ec;
-  --text-dim: #8b93a1;
-  --border: #2a2f3a;
-  --accent: #39c5bb;
-  --danger: #e5484d;
+  /* 内容区底 = 淡紫灰 */
+  --bg: #b6abb0;
+  --bg-elevated: #fdfdfd;
+  --text: #3a3436;
+  --text-dim: #8b8490;
+  --border: #c9bec3;
+  /* 头部栏/边框 = 深紫（统一），顶头栏宽、其他三边为 rim 宽度 */
+  --accent: #77636c;
+  --accent-soft: rgba(119, 99, 108, 0.14);
+  --header-bg: #77636c;
+  --header-text: #f5f1f3;
+  --shell-bg: #77636c; /* 与头栏同色：完整一圈深紫边框 */
+  --danger: #c0504a;
   --radius: 8px;
+  /* 下拉相关 */
+  --drop-radius: 14px;
+  --drop-shadow: 0 14px 36px rgba(40, 30, 35, 0.28);
+  --drop-gap: 8px;
+  /* 深紫包裹边框：四角圆角半径 + 左/右/底边框条宽（顶部是头栏高度） */
+  --shell-radius: 18px;
+  --rim-width: 8px;
+}
+
+/* frameless 透明窗：让圆角外的桌面透出来 */
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
 }

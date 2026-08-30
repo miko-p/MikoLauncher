@@ -16,9 +16,11 @@
  *   - 视图（M9-6）：`views` 以 key 为索引，宿主内置五视图在构造时种子化；插件可
  *     `registerView` 新增/覆盖（同名幂等）；`getManifest` 返回全部（含 builtin + disabled），
  *     前端按需过滤（disabled 隐藏导航）、按 order 排序。
+ *   - 小组件（M10）：`widgets` 以 key 为索引；多个小组件插件各 `registerWidget`
+ *     贡献一块首页卡片，`getManifest` 全量返回（同 key 幂等覆盖），前端渲染成响应式网格。
  */
 import { Service } from 'cordis'
-import type { UiLayoutSlot, UiManifest, UiTheme, UiView } from '@miko-launcher/shared'
+import type { UiLayoutSlot, UiManifest, UiTheme, UiView, UiWidget } from '@miko-launcher/shared'
 import { ServiceName } from '../context.js'
 import type { RustBridgeService } from '../bridge/rust-bridge.js'
 
@@ -36,6 +38,8 @@ export class UiRegistryService extends Service {
   private layouts = new Map<string, UiLayoutSlot[]>()
   /** 视图集合：key → UiView（builtin 种子 + 插件贡献）；以 key 幂等覆盖。 */
   private views = new Map<string, UiView>()
+  /** 小组件面板集合：key → UiWidget（M10）；多个小组件插件各贡献一块首页卡片。 */
+  private widgets = new Map<string, UiWidget>()
 
   constructor(ctx: any) {
     super(ctx, ServiceName.uiRegistry)
@@ -82,6 +86,17 @@ export class UiRegistryService extends Service {
     }
   }
 
+  /**
+   * 注册一个小组件贡献（M10）；返回注销函数。以 key 幂等覆盖（re-enable 更新）。
+   * 多个小组件插件各自调用本方法即可在首页面板多卡片共存（区别于布局 slot 的单贡献覆盖）。
+   */
+  registerWidget(widget: UiWidget): () => void {
+    this.widgets.set(widget.key, widget)
+    return () => {
+      if (this.widgets.get(widget.key) === widget) this.widgets.delete(widget.key)
+    }
+  }
+
   /** 生成前端要渲染的 UI manifest（active theme + 每 slot 最后注册的布局 + 全部视图）。 */
   getManifest(): UiManifest {
     const theme = this.themeStack.length
@@ -94,7 +109,11 @@ export class UiRegistryService extends Service {
     const views = [...this.views.values()].sort(
       (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key),
     )
-    return { theme, layouts, views }
+    // M10：小组件面板全量返回（同 key 幂等覆盖；前端过滤 disabled + 排序）
+    const widgets = [...this.widgets.values()].sort(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key),
+    )
+    return { theme, layouts, views, widgets }
   }
 
   /** 暴露 RPC（核心方法；schema 已在 shared 注册，走严格校验）。 */

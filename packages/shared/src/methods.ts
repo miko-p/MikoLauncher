@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod'
-import { AccountSchema, InstanceSchema, UiManifestSchema } from './entities.js'
+import { AccountSchema, InstanceSchema, ModpackSchema, UiManifestSchema } from './entities.js'
 
 /* ------------------------------------------------------------------ *
  *  方法名表（注册点）                                                  *
@@ -21,6 +21,7 @@ export const Method = {
   instanceCreate: 'instance.create',
   instanceRemove: 'instance.remove',
   instanceUpdateAccount: 'instance.updateAccount',
+  instanceUpdateJavaMajor: 'instance.updateJavaMajor',
   instanceLaunch: 'instance.launch',
   accountList: 'account.list',
   accountLoginOffline: 'account.loginOffline',
@@ -66,6 +67,10 @@ export const instanceCreateParamsSchema = z.object({
   modLoader: z.enum(['vanilla', 'fabric', 'quilt', 'forge', 'neoforge']),
   /** 可选：创建时即关联账号 */
   accountId: z.string().optional(),
+  /** 可选：创建时即设实例期望 Java 主版本 */
+  javaMajor: z.number().int().positive().optional(),
+  /** 可选：创建时即绑定 Modrinth 模组包（「从模组包开始」；安装于首次启动） */
+  modpack: ModpackSchema.optional(),
 })
 
 export type InstanceCreateParams = z.infer<typeof instanceCreateParamsSchema>
@@ -103,6 +108,22 @@ export const instanceUpdateAccountDataSchema = z.object({
 })
 
 /* ------------------------------------------------------------------ *
+ *  instance.updateJavaMajor                                            *
+ * ------------------------------------------------------------------ */
+
+export const instanceUpdateJavaMajorParamsSchema = z.object({
+  id: z.string(),
+  /** 期望的 Java 主版本；传 null/空 清除（回退按 MC 版本要求自动选） */
+  javaMajor: z.number().int().positive().nullable().optional(),
+})
+
+export type InstanceUpdateJavaMajorParams = z.infer<typeof instanceUpdateJavaMajorParamsSchema>
+
+export const instanceUpdateJavaMajorDataSchema = z.object({
+  instance: InstanceSchema,
+})
+
+/* ------------------------------------------------------------------ *
  *  instance.launch                                                    *
  * ------------------------------------------------------------------ */
 
@@ -117,12 +138,9 @@ export const instanceLaunchParamsSchema = z.object({
 export type InstanceLaunchParams = z.infer<typeof instanceLaunchParamsSchema>
 
 export const instanceLaunchDataSchema = z.object({
-  /** 启动的 JVM 进程 pid */
-  pid: z.number().int().positive(),
-  /** 解析到的 Java 版本（形如 "17.0.10"） */
-  javaVersion: z.string(),
-  /** 实际拼接的 JVM 参数 */
-  jvmArgs: z.array(z.string()),
+  /** M11-3：启动已提交（非阻塞；游戏进程 pid/运行状态经 `launch:status` 事件 + `launch_status` 查询推送） */
+  started: z.boolean(),
+  instanceId: z.string(),
 })
 
 export type InstanceLaunchData = z.infer<typeof instanceLaunchDataSchema>
@@ -195,8 +213,8 @@ export const accountRefreshDataSchema = z.object({
   account: AccountSchema,
   /** true = refresh_token 已失效，需用户重新登录（前端显示重登按钮） */
   needsReauth: z.boolean(),
-  /** 失效/异常时的人类可读原因（有效或无异常时省略） */
-  message: z.string().optional(),
+  /** 失效/异常时的人类可读原因（有效或无异常时为 null / 缺省） */
+  message: z.string().nullish(),
 })
 
 export type AccountRefreshData = z.infer<typeof accountRefreshDataSchema>

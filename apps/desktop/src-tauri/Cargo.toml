@@ -19,20 +19,29 @@ serde_json = "1"
 
 # 真实版本清单拉取（Mojang API）
 reqwest = { version = "0.13", features = ["json", "blocking"] }
+# Microsoft OAuth 授权码流里解 JWT 的 xuid claim（M10-4）
+base64 = "0.22"
 
 # MC 启动内核：LightyLauncherLib 全家桶（MIT）
 # M4：接入 lighty-launch 完整启动 pipeline（Loader→安装→JVM 启动→pid）
-lighty-launch = { version = "26.5.12", features = ["events"] }
-lighty-version = "26.5.12"
+# M13：必须开 `modrinth` feature —— 否则 installer 的 modpack 分支整个被 cfg 排除，
+#      resolve_extra_mods 走 no-modrinth 分支直接返回空 Vec，模组包永不安装（症状：实例启动跟
+#      普通 fabric 一样，mods/ 目录为空、lighty 也不写 modpacks cache）
+lighty-launch = { version = "26.5.12", features = ["events", "modrinth"] }
+# M13：启用 lighty-version 的 modrinth feature 以暴露 VersionBuilder::with_modrinth_modpack
+lighty-version = { version = "26.5.12", features = ["modrinth"] }
 lighty-loaders = { version = "26.5.12", features = ["vanilla", "fabric", "quilt", "neoforge", "forge"] }
 lighty-auth = { version = "26.5.12", features = ["events"] }
 lighty-core = "26.5.12"
 lighty-event = "26.5.12"
 lighty-java = "26.5.12"
-lighty-modsloader = "26.5.12"
+# M13：真实下载/装 mods 用 lighty-modsloader；先启 modrinth（模组/模组包），curseforge 待有 API key 再开
+lighty-modsloader = { version = "26.5.12", features = ["modrinth"] }
+# M13：解析 .mrpack（zip）拿到模组清单，创建实例后立即填进实例 mods 列表展示
+zip = "4"
 
 # 真实启动是 async（lighty 用 tokio）；Tauri command 需显式 runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 
 # M7：微软 refresh_token 存 OS keyring（keystore），accounts.json 不再明文存凭据。
 # 可选 feature `keyring` 启用；未启用或无 D-Bus 会话时回退到 accounts.json 内置存储。

@@ -33,6 +33,15 @@ export function apply(ctx: Context) {
       bridge.on('instance.updateAccount', (params: { id: string; accountId?: string | null }) =>
         ctx.instanceManager.updateAccount(params.id, params.accountId),
       ),
+      bridge.on('instance.updateIcon', (params: { id: string; icon?: string | null }) =>
+        ctx.instanceManager.updateIcon(params.id, params.icon),
+      ),
+      bridge.on('instance.updateJavaMajor', (params: { id: string; javaMajor?: number | null }) =>
+        ctx.instanceManager.updateJavaMajor(params.id, params.javaMajor),
+      ),
+      bridge.on('instance.updateMods', (params: { id: string; mods?: unknown[] }) =>
+        ctx.instanceManager.updateMods(params.id, params.mods ?? []),
+      ),
       // launch 骨架：委托实例管理（M2 起换 Rust LaunchAdapter 真实启动）
       bridge.on('instance.launch', () => {
         throw new Error('instance.launch 尚未接入 Rust 启动内核（M2）')

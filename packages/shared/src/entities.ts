@@ -69,9 +69,93 @@ export const ModSchema = z.object({
   hash: z.string().optional(),
   /** 字节大小，进度计算用 */
   size: z.number().int().nonnegative().optional(),
+  /** M13：来自 .mrpack 时记录归属路径（如 `mods/sodium.jar` 或 `overrides/...`）。普通安装的模组无此字段。 */
+  path: z.string().optional(),
+  /** M13：.mrpack 里 client 必需标记（env.client=="required"；旧包无 env 视为必需）。普通安装的模组无此字段。 */
+  clientRequired: z.boolean().optional(),
 })
 
 export type Mod = z.infer<typeof ModSchema>
+
+/**
+ * M13：`.mrpack` 模组包内单个文件的清单元数据（对应 Rust `modrinth_modpack_files` 返回）。
+ * 创建模组包实例后，前端把这份清单映射进实例 `mods` 列表展示。
+ */
+export const ModpackFileSchema = z.object({
+  /** 包内路径（如 `mods/sodium.jar` 或 `overrides/...`） */
+  path: z.string(),
+  /** 文件名（不含目录，供展示/落盘） */
+  file_name: z.string(),
+  /** 下载 URL（`.mrpack` 里列的第一下载源） */
+  url: z.string(),
+  sha1: z.string(),
+  size: z.number().int().nonnegative(),
+  /** 是否客户端必需（env.client=="required"；旧包无 env 视为必需） */
+  client_required: z.boolean(),
+})
+
+export type ModpackFile = z.infer<typeof ModpackFileSchema>
+
+/**
+ * M13：实例绑定的 Modrinth 模组包引用（「从模组包开始」建实例时记录）。
+ * 安装时机：首次启动时 lighty 按 `project`+`versionId` 解析 `.mrpack` 并装依赖。
+ */
+export const ModpackSchema = z.object({
+  /** 来源标识，当前仅 modrinth（curseforge 待有 API key 再接） */
+  provider: z.enum(['modrinth']),
+  /** Modrinth 项目 slug 或 id（拼 ModpackSource::ModrinthPinned.project） */
+  project: z.string(),
+  /** 项目显示名 */
+  title: z.string(),
+  /** 项目图标 URL */
+  iconUrl: z.string().optional(),
+  /** 选定的 Modrinth 版本 id（拼 version） */
+  versionId: z.string(),
+  /** 版本号（如 1.21.4） */
+  versionNumber: z.string(),
+  /** 该版本主文件下载 URL（`.mrpack`） */
+  fileUrl: z.string().optional(),
+})
+
+export type Modpack = z.infer<typeof ModpackSchema>
+
+/** Modrinth 浏览页用的项目/版本类型（前端搜索页渲染）。 */
+export const ModrinthProjectSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  description: z.string(),
+  icon_url: z.string().optional(),
+  downloads: z.number().optional(),
+  followers: z.number().optional(),
+  project_type: z.string().optional(),
+  categories: z.array(z.string()).optional(),
+  /** 已发布 MC 版本 */
+  versions: z.array(z.string()).optional(),
+  client_side: z.string().optional(),
+})
+
+export type ModrinthProject = z.infer<typeof ModrinthProjectSchema>
+
+export const ModrinthVersionSchema = z.object({
+  id: z.string(),
+  version_number: z.string(),
+  game_versions: z.array(z.string()),
+  loaders: z.array(z.string()),
+  date_published: z.string(),
+  version_type: z.string(),
+  files: z
+    .array(
+      z.object({
+        url: z.string(),
+        filename: z.string(),
+        size: z.number().optional(),
+        primary: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+})
+
+export type ModrinthVersion = z.infer<typeof ModrinthVersionSchema>
 
 /** 一个游戏实例（可独立启动的版本 + 加载器 + 模组集） */
 export const InstanceSchema = z.object({
@@ -85,7 +169,16 @@ export const InstanceSchema = z.object({
   mods: z.array(ModSchema),
   /** 关联的账号 id */
   accountId: z.string().optional(),
-  createdAt: z.string(),
+  /** 实例自定义图标（data-URI，如 data:image/png;base64,....；缺省用内置土块占位） */
+  icon: z.string().optional(),
+/**
+ * 实例期望的 Java 主版本号（可空）。设了则启动时倾向用该版本 JRE；
+ * 未设则按 MC 版本自身要求的 Java 主版本（如 1.21→21、26.x→25）。
+ */
+javaMajor: z.number().int().positive().optional(),
+/** M13：实例绑定的 Modrinth 模组包（来自「从模组包开始」；安装于首次启动时 lighty 自动解析）。缺省无。 */
+modpack: ModpackSchema.optional(),
+createdAt: z.string(),
 })
 
 export type Instance = z.infer<typeof InstanceSchema>
@@ -161,6 +254,30 @@ export const UiViewSchema = z.object({
 
 export type UiView = z.infer<typeof UiViewSchema>
 
+/**
+ * 小组件（widget）插件贡献的一块首页卡片（M10 小组件面板）。
+ *
+ * 把原 `home-widget` 布局 slot 升级为「小组件面板」：多个独立的小组件插件
+ * 各贡献一块带标题的卡片 HTML，前端在主页渲染成响应式网格，各自经插件页
+ * 启用/禁用（每个小组件即一个 Phase 0 插件）。
+ */
+export const UiWidgetSchema = z.object({
+  /** 小组件唯一标识（对应插件贡献 key；同一插件可贡献多个时用不同 key） */
+  key: z.string(),
+  /** 卡片标题（面板内显示） */
+  title: z.string(),
+  /** 卡片主体 HTML 内容（前端 v-html 渲染） */
+  html: z.string(),
+  /** 面板内排序（数字越小越靠前；不提供则按注册序） */
+  order: z.number().optional(),
+  /** 卡片宽度档（对照前端面板网格列数；缺省 'auto' 自适应） */
+  width: z.enum(['auto', 'half', 'full']).optional(),
+  /** 是否禁用（隐藏该小组件卡片） */
+  disabled: z.boolean().optional(),
+})
+
+export type UiWidget = z.infer<typeof UiWidgetSchema>
+
 /** ui.getManifest → 前端要渲染的 UI 贡献（theme 单值 active；layouts 按 slot；views 为导航源码） */
 export const UiManifestSchema = z.object({
   /** 当前生效主题（无主题插件时为 null） */
@@ -169,6 +286,8 @@ export const UiManifestSchema = z.object({
   layouts: z.array(UiLayoutSlotSchema),
   /** 导航/页面视图集合 = 宿主内置 + 插件贡献（前端据此渲染导航条 + 注册路由） */
   views: z.array(UiViewSchema),
+  /** 小组件面板条目（M10）：多个小组件插件各自贡献一块首页卡片 */
+  widgets: z.array(UiWidgetSchema),
 })
 
 export type UiManifest = z.infer<typeof UiManifestSchema>
@@ -177,11 +296,16 @@ export const entities = {
   Version: VersionSchema,
   Account: AccountSchema,
   Mod: ModSchema,
+  Modpack: ModpackSchema,
+  ModpackFile: ModpackFileSchema,
+  ModrinthProject: ModrinthProjectSchema,
+  ModrinthVersion: ModrinthVersionSchema,
   Instance: InstanceSchema,
   ModLoader: ModLoaderSchema,
   UiTheme: UiThemeSchema,
   UiLayoutSlot: UiLayoutSlotSchema,
   UiView: UiViewSchema,
   UiViewAction: UiViewActionSchema,
+  UiWidget: UiWidgetSchema,
   UiManifest: UiManifestSchema,
 }

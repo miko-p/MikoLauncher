@@ -1,12 +1,20 @@
 /* demo-theme —— 覆盖内置主题的同名 CSS 变量即可换肤。
- * 前端把本内容注入到 <style id="plugin-theme">（置于 head 末尾，覆盖 default.css 的 :root）。 */
+ * 前端把本内容注入到 <style id="plugin-theme">（置于 head 末尾，覆盖 default.css 的 :root）。
+ * 按 miko-launcher-interact.png 设计对齐：浅粉紫内容底 + 深紫红头栏 + 近白面板。 */
 :root {
-  --bg: #1e1230;
-  --bg-elevated: #2a1a44;
-  --text: #efeaff;
-  --text-dim: #b8a8d9;
-  --border: #4a3a6b;
-  --accent: #c792ea;
-  --danger: #ff6b6b;
-  --radius: 12px;
+  --bg: #b6abb0;
+  --bg-elevated: #fdfdfd;
+  --text: #3a3436;
+  --text-dim: #8b8490;
+  --border: #c9bec3;
+  --accent: #77636c;
+  --accent-soft: rgba(119, 99, 108, 0.14);
+  --header-bg: #77636c;
+  --header-text: #f5f1f3;
+  --danger: #c0504a;
+  --radius: 8px;
+  /* 深紫包裹边框：四周同色，顶头栏宽、左右/底为 rim，四角圆 */
+  --shell-bg: #77636c;
+  --shell-radius: 18px;
+  --rim-width: 8px;
 }

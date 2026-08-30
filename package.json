@@ -11,7 +11,7 @@
   "scripts": {
     "build:shared": "pnpm --filter @miko-launcher/shared build",
     "dev:host": "pnpm --filter @miko-launcher/plugin-host dev",
-    "dev:desktop": "pnpm --filter @miko-launcher/desktop tauri dev",
+    "dev:desktop": "GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 pnpm --filter @miko-launcher/desktop tauri dev",
     "build": "pnpm -r build"
   }
 }

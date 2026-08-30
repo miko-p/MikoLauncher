@@ -6,7 +6,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UiManifest, UiLayoutSlot, UiView } from '@miko-launcher/shared'
+import type { UiManifest, UiLayoutSlot, UiView, UiWidget } from '@miko-launcher/shared'
 import { getUiManifest } from '../api'
 
 export const useUiStore = defineStore('ui', () => {
@@ -37,6 +37,13 @@ export const useUiStore = defineStore('ui', () => {
   /** M9-6：仅插件贡献的视图（builtin=false，用于前端动态注册路由）。 */
   const pluginViews = computed<UiView[]>(() => views.value.filter((v) => !v.builtin))
 
+  /** M10：小组件面板条目（过滤 disabled，按 order 排序），前端渲染成主页卡片网格。 */
+  const widgets = computed<UiWidget[]>(() =>
+    (manifest.value?.widgets ?? [])
+      .filter((w) => !w.disabled)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)),
+  )
+
   /** 拉取最新的 UI 贡献（前端在启用/禁用插件后调用）。 */
   async function refresh() {
     error.value = null
@@ -47,5 +54,5 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
-  return { manifest, theme, error, layoutsFor, activeSlots, views, pluginViews, refresh }
+  return { manifest, theme, error, layoutsFor, activeSlots, views, pluginViews, widgets, refresh }
 })

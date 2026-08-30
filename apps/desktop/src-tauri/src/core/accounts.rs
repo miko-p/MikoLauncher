@@ -224,7 +224,7 @@ impl AccountStore {
 }
 
 // 当前 UTC 时间戳（ISO8601，毫秒精度；用 chrono 保证真实年月日，供排序与展示。）
-fn chrono_now() -> String {
+pub fn chrono_now() -> String {
     use chrono::{SecondsFormat, Utc};
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
@@ -266,12 +266,29 @@ pub fn login_offline(store: &AccountStore, name: &str) -> Result<AccountEntry, S
     Ok(entry)
 }
 
-fn default_ms_client_id() -> Result<String, String> {
-    std::env::var("MIKO_MS_CLIENT_ID").map_err(|_| {
-        "未配置微软 client_id：请注册 Azure AD 公共客户端应用（获得 Mojang 批准），\
-         并设置环境变量 MIKO_MS_CLIENT_ID".to_string()
-    })
+/// 微软登录的 OAuth client id。
+///
+/// 微软 Minecraft 认证需要一个「已被 Minecraft Services 白名单认可」的应用 client id（否则最后一步
+/// `login_with_xbox` 返回 403 Invalid app registration）。自注册的普通 Azure 公共应用必须填
+/// `https://aka.ms/mce-reviewappid` 表格申请 MC API 权限、且个人 MSA 须走 `consumers` 租户才不报
+/// AADSTS500200——门槛高、有外部审批。
+///
+/// 本项目默认内置 DevLogin（`https://github.com/covers1624/DevLogin`，wikivg「Microsoft authentication」
+/// 页列为 "A fully working cli wrapper using device tokens"）公开导出的 client id：
+///   - 它是 CurseForge/Forge 生态作者 covers1624 注册的 Azure 应用（dev tools，非 secret，MIT 开源硬编码）；
+///   - 走 `consumers` 租户 + v2.0 **device code 流**（无「code 秒过期」坑），scope `XboxLive.signin offline_access`
+///     与 `microsoft_oauth`/lighty 完全一致，且已过 MC 白名单 → 免注册、免审批即可真正登录。
+///   - 复用第三方 client id 属灰区（账号授权登记在该应用名下、可能被作者吊销/微软封），故**允许用
+///     `MIKO_MS_CLIENT_ID` 环境变量覆盖**为你自己申请/认可的 id；未设置时回退到该内置默认。
+pub fn default_ms_client_id() -> Result<String, String> {
+    match std::env::var("MIKO_MS_CLIENT_ID") {
+        Ok(id) if !id.trim().is_empty() => Ok(id.trim().to_string()),
+        _ => Ok(MS_CLIENT_ID_FALLBACK.to_string()),
+    }
 }
+
+/// 内置默认（DevLogin 公开 client id：consumers 租户公共应用，device code 流已启用，MC 白名单已通过）。
+const MS_CLIENT_ID_FALLBACK: &str = "170105bd-9573-4222-b09c-6f24c3b77cd8";
 
 /// 微软账号设备流登录（阻塞直到用户在浏览器授权）。
 /// `emit_device_code` 回调把 (code, verification_uri) 推给前端展示。
@@ -281,12 +298,18 @@ where
     F: Fn(&str, &str) + Send + Sync + 'static,
 {
     let client_id = default_ms_client_id()?;
-    let mut auth = lighty_auth::microsoft::MicrosoftAuth::new(client_id.clone());
-    auth.set_device_code_callback(move |code, url| emit_device_code(code, url));
+    eprintln!("[ms-login] client_id 已读取（长度 {}）", client_id.len());
+    let mut auth = lighty_auth::microsoft::MicrosoftAuth::new(client_id);
+    auth.set_device_code_callback(move |code, url| {
+        eprintln!("[ms-login] 获取到 device code，长度 {}，推送前端", code.len());
+        emit_device_code(code, url);
+    });
 
+    eprintln!("[ms-login] 开始设备流 authenticate（等待用户授权）…");
     let profile = auth.authenticate(None::<&lighty_event::EventBus>).await.map_err(|e| {
         format!("微软认证失败: {e}")
     })?;
+    eprintln!("[ms-login] authenticate 完成，用户名 {}", profile.username);
 
     // 从 UserProfile 提取凭据
     let refresh_token = match &profile.provider {

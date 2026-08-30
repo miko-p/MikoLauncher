@@ -17,6 +17,8 @@ use lighty_event::{Event, EventBus, JavaEvent, LaunchEvent};
 use lighty_java::JavaDistribution;
 use lighty_launch::launch::Launch;
 use lighty_loaders::types::Loader;
+#[allow(unused_imports)]
+use lighty_loaders::VersionInfo; // VersionBuilder::game_dirs() 等（VersionInfo trait 方法）
 use lighty_version::VersionBuilder;
 
 use tauri::Emitter;
@@ -60,8 +62,9 @@ pub struct VersionEntry {
     pub java_major: Option<i32>,
 }
 
-/// 拉取并解析真实 Mojang 版本清单。
-pub fn fetch_version_manifest() -> Result<Vec<VersionEntry>, String> {
+/// 拉取并解析真实 Mojang 版本清单（全量，不截断）。
+/// 返回全部版本（id/type/url/release_time，java_major 需另行 enrich）。
+pub fn fetch_all_versions() -> Result<Vec<VersionEntry>, String> {
     const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     let resp = reqwest::blocking::Client::new()
@@ -77,8 +80,8 @@ pub fn fetch_version_manifest() -> Result<Vec<VersionEntry>, String> {
         .json()
         .map_err(|e| format!("解析 Mojang 清单失败: {e}"))?;
 
-    // Mojang 清单本身 newest→oldest。不错sort，只截前 N 个。
-    let versions: Vec<VersionEntry> = manifest
+    // Mojang 清单本身 newest→oldest。不错 sort。
+    Ok(manifest
         .versions
         .into_iter()
         .map(|v| VersionEntry {
@@ -88,10 +91,20 @@ pub fn fetch_version_manifest() -> Result<Vec<VersionEntry>, String> {
             release_time: v.time,
             java_major: None, // M4 用 fetch_java_major_enriched 逐版补
         })
-        .collect();
+        .collect())
+}
 
-    // 只返回前 60 个（最新的），避免列表过长
-    Ok(versions.into_iter().take(60).collect())
+/// 拉取并解析真实 Mojang 版本清单（只返回最新的 60 个，供下载列表）。
+pub fn fetch_version_manifest() -> Result<Vec<VersionEntry>, String> {
+    // 只取最新的 60 个（避免列表过长）
+    Ok(fetch_all_versions()?.into_iter().take(60).collect())
+}
+
+/// 校验某个版本 id 是否真实存在（在**完整**清单里精确匹配，不限于前 60）。
+/// 返回匹配到的版本条目（含 url / release_time / type）。
+pub fn check_version_exists(id: &str) -> Result<Option<VersionEntry>, String> {
+    let all = fetch_all_versions()?;
+    Ok(all.into_iter().find(|v| v.id == id))
 }
 
 /// M4：拉取指定版本的 json，解析其要求的 Java 主版本号（如 1.21 要求 21）。
@@ -104,6 +117,23 @@ fn fetch_java_major(url: &str) -> Option<i32> {
         .error_for_status()
         .ok()?
         .json()
+        .ok()?;
+    json.java_version.map(|j| j.major_version)
+}
+
+/// M12：async 版 `fetch_java_major` —— 用 lighty 共享 async `HTTP_CLIENT` 拉版本 json 解析 Java 主版本。
+/// 供**异步 launch_game 内部**用：绝不能在 async 上下文里 new `reqwest::blocking::Client`（其内部
+/// 自建 tokio runtime，被 drop 会在异步上下文 panic「Cannot drop a runtime in a context where blocking is not allowed」）。
+async fn fetch_java_major_async(url: &str) -> Option<i32> {
+    let json: MojangVersionJson = lighty_core::hosts::HTTP_CLIENT
+        .get(url)
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .await
         .ok()?;
     json.java_version.map(|j| j.major_version)
 }
@@ -150,11 +180,19 @@ pub struct LaunchContext {
     app: Option<tauri::AppHandle>,
     #[allow(clippy::type_complexity)]
     on_progress: Option<std::sync::Arc<dyn Fn(&str, u64, u64, &str) + Send + Sync>>,
+    /// M11-3：游戏进程已拉起（拿到 pid）时的回调 —— 让调用方能在游戏**运行期间**把“运行中”状态推给前端
+    ///（默认 launch_game 只在游戏退出后才返回 outcome，不监听则前端无从实时知道已启动）。
+    #[allow(clippy::type_complexity)]
+    on_launched: Option<std::sync::Arc<dyn Fn(u32) + Send + Sync>>,
 }
 
 impl LaunchContext {
     pub fn new(app: Option<tauri::AppHandle>) -> Self {
-        Self { app, on_progress: None }
+        Self {
+            app,
+            on_progress: None,
+            on_launched: None,
+        }
     }
 
     /// 附加一个进度观察回调（无 AppHandle 时也能观察真实进度，供 self-check/测试）。
@@ -163,6 +201,15 @@ impl LaunchContext {
         F: Fn(&str, u64, u64, &str) + Send + Sync + 'static,
     {
         self.on_progress = Some(std::sync::Arc::new(f));
+        self
+    }
+
+    /// 附加「进程已拉起」回调（M11-3：游戏运行时把 pid 推前端状态列）。
+    pub fn with_on_launched<F>(mut self, f: F) -> Self
+    where
+        F: Fn(u32) + Send + Sync + 'static,
+    {
+        self.on_launched = Some(std::sync::Arc::new(f));
         self
     }
 
@@ -338,6 +385,7 @@ pub async fn resolve_loader_version(loader: &Loader, mc_version: &str) -> Result
 ///      实时把 JRE/MC 安装真实进度桥接成 `download:progress` 事件（不依赖额外 task）
 ///   3. lighty 完整 pipeline：metadata → JRE(必要时下载) → install(8 桶) → spawn JVM
 ///   4. 捕获 `LaunchEvent::Launched { pid }` 返回
+#[allow(clippy::too_many_arguments)] // ctx/name/mc/loader/identity/jvm/javaMajorOverride/modpack
 pub async fn launch_game(
     ctx: &LaunchContext,
     name: &str,
@@ -345,11 +393,18 @@ pub async fn launch_game(
     loader: &str,
     identity: &crate::core::accounts::AccountIdentity,
     jvm_options: &[(&str, String)],
+    _java_major_override: Option<i32>,
+    modpack: Option<lighty_modsloader::ModpackSource>,
 ) -> Result<LaunchOutcome, String> {
     ensure_app_state()?;
 
     let loader = mod_loader_to_loader(loader)?;
 
+    // 预留：实例显式指定 Java 主版本时，可在未来 lighty 支持 JRE 覆写后接管 JRE 选择。
+    // lighty 26.5.12 用 version json 的 `javaVersion.majorVersion` 决定用哪个 JRE（26.x→25），
+    // 暂不以实例覆写覆盖（避免与 lighty 自管 JRE 不一致）。natives 布局修复见下方 with_jvm_options。
+
+    let _ = _java_major_override;
     let bus = EventBus::new(1024);
     let mut rx = bus.subscribe();
 
@@ -361,6 +416,12 @@ pub async fn launch_game(
     // 实例版本即 MC 版本；launch 前解析具体 loader 版本（fabric 等需精确版本才能拼 meta URL）
     let loader_version = resolve_loader_version(&loader, mc_version).await?;
     let mut version = VersionBuilder::new(name, loader, &loader_version, mc_version);
+    // M13：实例绑定 Modrinth 模组包时挂上 —— 首次启动 lighty 会在 install 阶段解析 .mrpack 并装依赖
+    if let Some(src) = modpack {
+        version = version.with_mod().with_modrinth_modpack(src).done();
+    }
+    // 提前取 natives 压平抽取目录（lighty 把 .so 都放这里；须在 `version.launch()` 借用前取，否则借用冲突）
+    let natives_dir = version.game_dirs().join("natives").display().to_string();
 
     // 接收额外 JVM 参数（如 -Xmx4G → Xmx=4G）
     let mut builder = version.launch(&profile, JavaDistribution::Temurin);
@@ -369,6 +430,21 @@ pub async fn launch_game(
         for (k, v) in jvm_options {
             ob = ob.set(*k, v.clone());
         }
+        builder = ob.done();
+    }
+    // M12：修复「新版号方案（26.x/Minecraft 26，去 1.x 前缀）」的 natives 布局崩。
+    // lighty 26.5.12 把所有原生 .so 压平抽到 `{instance}/natives` 根；但 26.x 的 version json
+    // 把 JVM 参数改成子目录布局（`-Djava.library.path=${natives_directory}/java`、jna/lwjgl/netty 子目录），
+    // 导致 JVM 去不存在的 `natives/java` 找 liblwjgl.so → `Failed to locate library: liblwjgl.so`、窗口未出即崩。
+    // 这里**无条件**把四个 natives 相关的 -D 覆写成 lighty 实际压平抽取的 `{instance}/natives` 根：
+    // 对老版本（1.x）这些值本来就等于 `{natives}`（无副作用）；对 26.x 则纠正到正确位置（幂等、安全）。
+    if !jvm_options.iter().any(|(k, _)| *k == "Djava.library.path") {
+        let mut ob = builder.with_jvm_options();
+        ob = ob
+            .set("Djava.library.path", &natives_dir)
+            .set("Djna.tmpdir", &natives_dir)
+            .set("Dorg.lwjgl.system.SharedLibraryExtractPath", &natives_dir)
+            .set("Dio.netty.native.workdir", &natives_dir);
         builder = ob.done();
     }
     builder = builder.with_event_bus(&bus);
@@ -381,18 +457,16 @@ pub async fn launch_game(
     let mut mc_total = 0u64;
     let mut launch_result: Option<Result<(), String>> = None;
     let mut launched_pid: Option<u32> = None;
-    let mut post_drain: u32 = 0;
 
     let result = loop {
-        // 两个退出条件：拿到 pid (且有 launch 结果)，或 launch 完成但 drain 到上限
-        if launched_pid.is_some() && launch_result.is_some() {
-            break launch_result.clone().expect("launch result");
-        }
-        if launch_result.is_some() && post_drain > 5000 {
+        // 退出：run() future 完成（=游戏进程退出，lighty run 在游戏运行期间不 resolve，见下）即返回。
+        // M11-3 修复：不再依赖 `Launched` 事件凑 `post_drain>5000`才退出——若 lighty 的 Launched 事件没进到
+        // 我们 subscribe 的 bus，原逻辑会**永远卡在等 Launched**，导致 launch_game 不返回 → 后台线程挂死、
+        // running 表永不清、游戏退出后无法再启动。只要 run() 返回即可安全退出（pid 尽量从 launched_pid 取）。
+        if launch_result.is_some() {
             break launch_result.clone().expect("launch result");
         }
         // launch 未完成时，同时驱动进度 + launch；
-        // launch 完成后（guarded off）只 drain rx 等待 Launched。
         tokio::select! {
             ev = rx.next() => {
                 match ev {
@@ -420,11 +494,12 @@ pub async fn launch_game(
                             }
                             Event::Launch(LaunchEvent::Launched { pid, .. }) => {
                                 launched_pid = Some(pid);
+                                // M11-3：立刻通知调用方“游戏已拉到 pid”，供前端状态列实时显示运行中
+                                if let Some(cb) = &ctx.on_launched {
+                                    cb(pid);
+                                }
                             }
                             _ => {}
-                        }
-                        if launch_result.is_some() {
-                            post_drain += 1;
                         }
                     }
                     Err(_) => {
@@ -444,8 +519,10 @@ pub async fn launch_game(
     match result {
         Err(e) => Err(e),
         Ok(()) => {
-            let pid = launched_pid.ok_or_else(|| "游戏进程已启动但未捕获到 pid".to_string())?;
-            let major = java_major_for_manifest(mc_version);
+            // M11-3：lighty 的 Launched 事件可能不进到我们 subscribe 的 bus → pid 拿不到。
+            // 不再因此返回 Err（否则 exit 事件被打成 error、且语义不对）；pid 兜底为 0。
+            let pid = launched_pid.unwrap_or(0);
+            let major = java_major_for_manifest(mc_version).await;
             Ok(LaunchOutcome {
                 pid,
                 java_version: major.map(|m| format!("{m}")).unwrap_or_else(|| "?".into()),
@@ -458,19 +535,45 @@ pub async fn launch_game(
 /// 解析 single-version 的 java 主版本（先查 manifest 里对应条目）。
 /// 简化：M4 里版本清单已 enrich 过 java_major；这里从缓存条目取。
 /// 若未命中则返回 None（启动不阻塞）。
-fn java_major_for_manifest(version_id: &str) -> Option<i32> {
-    match fetch_version_manifest() {
-        Ok(list) => list
-            .iter()
-            .find(|v| v.id == version_id)
-            .and_then(|v| v.java_major)
-            .or_else(|| {
-                list.iter()
-                    .find(|v| v.id == version_id)
-                    .and_then(|v| fetch_java_major(&v.url))
-            }),
-        Err(_) => None,
+/// M12：async 版（避免在异步上下文里 new `reqwest::blocking::Client`）。
+async fn java_major_for_manifest(version_id: &str) -> Option<i32> {
+    let Ok(list) = fetch_all_versions_async().await else {
+        return None;
+    };
+    let entry = list.iter().find(|v| v.id == version_id)?;
+    if let Some(m) = entry.java_major {
+        return Some(m);
     }
+    fetch_java_major_async(&entry.url).await
+}
+
+/// M12：async 版 `fetch_all_versions` —— 用 lighty 共享 async `HTTP_CLIENT` 拉完整 Mojang 版本清单。
+/// 供异步 launch_game 内部用（同上：避免 async 上下文里的 reqwest::blocking runtime drop 崩溃）。
+async fn fetch_all_versions_async() -> Result<Vec<VersionEntry>, String> {
+    const MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    let resp = lighty_core::hosts::HTTP_CLIENT
+        .get(MANIFEST_URL)
+        .send()
+        .await
+        .map_err(|e| format!("请求 Mojang 清单失败: {e}"))?;
+    let body = resp
+        .error_for_status()
+        .map_err(|e| format!("Mojang 清单 HTTP 错误: {e}"))?;
+    let manifest: MojangManifestV2 = body
+        .json()
+        .await
+        .map_err(|e| format!("解析 Mojang 清单失败: {e}"))?;
+    Ok(manifest
+        .versions
+        .into_iter()
+        .map(|v| VersionEntry {
+            id: v.id,
+            version_type: v.version_type,
+            url: v.url,
+            release_time: v.time,
+            java_major: None,
+        })
+        .collect())
 }
 
 /// M4：真实启动冒烟（供 `--self-check launch`，无 GUI 也可观察真实下载进度）。
@@ -508,7 +611,7 @@ pub fn launch_smoke(name: &str, mc_version: &str, loader: &str) -> String {
     let identity = crate::core::accounts::AccountIdentity::Offline {
         username: "SmokePlayer".to_string(),
     };
-    let fut = crate::core::launch::launch_game(&ctx2, name, mc_version, loader, &identity, &[]);
+    let fut = crate::core::launch::launch_game(&ctx2, name, mc_version, loader, &identity, &[], None, None);
     // 直接 block_on（不依赖 tokio::time）；外层 shell 用 timeout 限定有界观察
     let result = rt.block_on(fut);
 

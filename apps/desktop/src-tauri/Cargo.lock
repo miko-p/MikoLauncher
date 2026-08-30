@@ -2192,6 +2192,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "liblzma"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fe0a34ca854fd4f20c07f696fc8675aec78f87d88d29f5e10257a7490a1b2e1"
+dependencies = [
+ "liblzma-sys",
+]
+
+[[package]]
+name = "liblzma-sys"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0dad045e4b1b7b170be4b60b54b780cafb4490165461bac7d1cf7b703f61d5f"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2243,7 +2263,7 @@ dependencies = [
  "tokio",
  "tokio-tar",
  "tokio-util",
- "zip",
+ "zip 6.0.0",
 ]
 
 [[package]]
@@ -2302,7 +2322,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "windows",
- "zip",
+ "zip 6.0.0",
 ]
 
 [[package]]
@@ -2323,7 +2343,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "version-compare",
- "zip",
+ "zip 6.0.0",
 ]
 
 [[package]]
@@ -2456,6 +2476,7 @@ dependencies = [
 name = "miko-launcher"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "keyring",
  "lighty-auth",
@@ -2473,6 +2494,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-shell",
  "tokio",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -5923,6 +5945,33 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "zip"
+version = "4.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
+dependencies = [
+ "aes",
+ "arbitrary",
+ "bzip2",
+ "constant_time_eq",
+ "crc32fast",
+ "deflate64",
+ "flate2",
+ "getrandom 0.3.4",
+ "hmac",
+ "indexmap 2.14.0",
+ "liblzma",
+ "memchr",
+ "pbkdf2",
+ "ppmd-rust",
+ "sha1 0.10.7",
+ "time",
+ "zeroize",
+ "zopfli",
+ "zstd",
 ]
 
 [[package]]
