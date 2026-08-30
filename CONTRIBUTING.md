@@ -32,6 +32,10 @@ pnpm run build        # 构建 shared 契约(tsc) + 前端(vue-tsc+vite)
 pnpm dev:desktop      # 启动 Tauri 桌面应用
 ```
 
+> Wayland 下 GTK 窗口刚开就退（`Gdk-Message Error 71 ... Wayland display` → sidecar 报 `stdin closed`）：
+> `dev:desktop` 已内置 `GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1`。手动跑
+> `pnpm --filter @miko-launcher/desktop tauri dev` 时需自行加上这两个 env。
+
 > Rust 内核自检（不进 GUI）：在 `apps/desktop/src-tauri` 下 `cargo run -- --self-check`。
 
 ## 架构约定（重要）
@@ -53,7 +57,7 @@ pnpm dev:desktop      # 启动 Tauri 桌面应用
 
 ## 运行时注意
 
-- **微软账号登录**需要 Azure AD client_id：`export MIKO_MS_CLIENT_ID="..."`（离线账号无需）。
+- **微软账号登录**（M10-6 默认）：官方 client id（`00000000402b5328`）+ `login.live.com`，弹浏览器 + 手动粘回地址栏 URL，免注册能登录。loopback 全自动实现需 Minecraft 认可的 client id（自注册普通应用会被 Microsoft Services 租户拒），供有认可 id 时用。离线账号无需配置。
 - **Rust 自检需要联网**（拉取 Mojang 版本清单 / loader 版本）。
 - 目录改名后若 `cargo build` 报 tauri-build 路径错误，删除 `apps/desktop/src-tauri/target` 重建即可。
 

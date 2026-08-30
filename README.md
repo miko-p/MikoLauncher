@@ -58,8 +58,9 @@
 - 🚀 **真实启动 JVM**：完整 lighty-launch pipeline，真正拉起游戏窗口
 - 🔧 **多加载器**：vanilla / fabric / quilt / neoforge / forge，启动前自动解析精确 loader 版本（NeoForge 按官方命名 `{minor}.{patch}.` 精确匹配）
 - 👤 **账号体系**：离线账号 + **微软设备流认证**（OAuth），微软 refresh_token 落 **OS keyring**（Secret Service / Keychain / 凭据管理器），账号本地持久化，实例**绑定账号启动**
-- 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活），实例账号绑定一键持久化
-- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）；**主题 / 布局插件**已可注入（CSS 变量 + slot，示例 `demo-theme` / `demo-layout`）；**插件化 UI 骨架升级（M9-6）**——顶栏导航与页面路由改由 ui manifest 驱动，插件可经 `registerView` 新增/覆盖导航项与页面（示例 `demo-view`），并可声明**可点动作**（`actions` 按钮 → sidecar 插件 handler → 结果回显），「整套界面由插件声明 + 插件页可交互」的框架已立起；组件级交互深化待分发演进
+- 🎛 **实例管理**：创建 / 启动 / 进度渲染，SQLite 持久化（重启存活），实例账号绑定一键持久化；实例页为**手机主屏式图标网格**（自定义图标 / 默认土块占位），点卡进**实例详情页**（换图标、启动账号、Java 版本选择、模组列表、删除）
+- 🎮 **Modrinth 模组包 / 模组浏览（M13）**：独立「下载」页浏览 Modrinth（搜索/排序/来源 tab/分页/模组包·模组类型），点开选 MC 版本 + 加载器创建实例；创建后立即把 `.mrpack` 文件清单填进实例详情页「模组」栏展示（文件名/大小/必装标记/归属路径/sha1）；**首次启动自动解析 `.mrpack` 并安装全部依赖** —— 「下载 → 建实例 → 看模组 → 启动即装」流水线打通
+- 🧩 **插件体系（演进中）**：Phase 0 **功能插件**已可插拔 —— 本地 `plugins/` 目录装载 + SHA-256 哈希校验（防篡改）+ Cordis 承载，启用/禁用即装载/卸载回滚（含示例 `demo-greeter`），**启用状态持久化**（重启后保持，`plugin-state.json`）；**主题 / 布局插件**已可注入（CSS 变量 + slot，示例 `demo-theme` / `demo-layout`）；**插件化 UI 骨架升级（M9-6）**——顶栏导航与页面路由改由 ui manifest 驱动，插件可经 `registerView` 新增/覆盖导航项与页面（示例 `demo-view`），并可声明**可点动作**（`actions` 按钮 → sidecar 插件 handler → 结果回显），「整套界面由插件声明 + 插件页可交互」的框架已立起；**主页小组件面板（M10）**——小组件即插件，自由像素拖拽编辑 / 文字·账号等动态小组件；组件级交互深化待分发演进
 - 📦 **发布 runtime 落地**：sidecar 用 **bun 打成单文件可执行**（内嵌 runtime，无外部 Node 依赖，SQLite 走 Node 内置 `node:sqlite`），经 Tauri `externalBin` 打包 —— `tauri build` 已能产出 **deb / rpm / AppImage** 安装包
 
 > 每个里程碑的交付、验证、踩坑都记录在 [`docs/`](docs/) 下的 `M*-status.md`，完整技术决策见 [`MikoLauncher-architecture.md`](MikoLauncher-architecture.md)。
@@ -105,13 +106,11 @@ git tag v0.1.0 && git push origin v0.1.0
 
 > Linux AppImage 因 tauri 已知 CI bug（linuxdeploy 在 ubuntu runner 上失败，#14796）不在 CI 产出，改由本机 `NO_STRIP=1` 打包（见 BUILD-SIDECAR.md）。
 
-**微软账号登录**需先注册 Azure AD 公共客户端应用并获得 Mojang 批准，然后以环境变量提供 client_id：
+**微软账号登录**（M10-6 起默认方式）：点「用 Microsoft 账号登录」自动弹系统浏览器，登录完成后把地址栏含 `code=` 的 URL 粘回启动器即可完成。使用**微软官方 Minecraft Launcher 的 client id**（免注册、免配置），能真正登录。
 
-```bash
-export MIKO_MS_CLIENT_ID="your-azure-client-id"
-```
+> 说明：Minecraft 认证的「全自动自动回跳」需一个被 Minecraft Services 认可的应用 client id（HMCL/PCL 是作者各自持有）。自注册普通 Azure 应用会被 `Microsoft Services` 租户拒绝（`AADSTS500200` / `login_with_xbox` 403），无法保证登录。若你后来拥有被认可/特批的 client id，可用仓库里的 loopback 全自动实现（配 `MIKO_MS_CLIENT_ID` + Azure redirect `http://127.0.0.1:5599/cb`）。
 
-（离线账号开箱即用，无需此步骤。）
+离线账号开箱即用，无需任何配置。
 
 ---
 
@@ -128,7 +127,7 @@ MikoLauncher/
 │  └─ shared/             # Rust↔TS 共享 Zod 契约（Single Source of Truth）
 ├─ plugins/               # 用户插件装载目录（Phase 0，含示例 demo-greeter / demo-theme / demo-layout）
 ├─ poc/                   # 早期概念验证脚本
-└─ docs/                  # 各里程碑 M1-M9 交付/验证/踩坑
+└─ docs/                  # 各里程碑 M1-M13 交付/验证/踩坑
 ```
 
 ---
@@ -144,6 +143,10 @@ MikoLauncher/
 - **M7** — 实例账号绑定持久化 · keyring 存微软 token · NeoForge 版本精确匹配 · 下载页 UI 增强 · Phase 0 功能插件装载 ✅
 - **M8** — 主题 / 布局插件 ✅
 - **M9** — 微软刷新失败重登 UI（M9-2 ✅）· 插件启用状态持久化（M9-3 ✅）· 发布 runtime 落地（M9-4 ✅，bun 单文件 + externalBin 出安装包）· 发布收尾（M9-5 ✅，CI 三端打包流水线 + GitHub Release）· 插件化 UI 骨架（M9-6 ✅，导航/页面改由插件驱动）· 插件分发演进（进行中）
+- **M10** — 主页小组件面板体系（M10-1 ✅，小组件即插件，自由像素拖拽编辑态持久化、文字/账号小组件）+ 微软登录改官方 client id 手动粘 URL（M10-6 ✅，免注册真登录）· 账号小组件显示真实 Mojang 头像 ✅
+- **M11** — 新建实例 ➕ 弹窗三选项 + 版本存在校验（M11 ✅）；实例页改「手机主屏式」图标网格卡片 + 实例详情页（M11-2 ✅，换图标/账号绑定/Java 版本/模组列表/删除）；修复「实例运行中启动器崩溃卡死」（M11-3 ✅，启动非阻塞化 + `launch:status` 状态列）· 下载页曾收进弹窗后又回归独立导航（并入 M13）
+- **M12** — 修复 26.x 新版号启动崩溃（natives 子目录布局覆写压平）+ tokio runtime drop panic ✅；实例级 Java 版本选择 ✅
+- **M13** — 「下载」页回归独立导航 + **Modrinth 模组包浏览/下载**（搜索/排序/分页/详情选版本建实例）✅；**实例内查看模组详情**（创建后解析 `.mrpack` 清单填进 mods + 详情页展示）✅；**启动时自动安装模组包依赖**（修 `lighty-launch` 缺 `modrinth` feature 致模组不装）✅ — 整条「下载 → 建实例 → 看模组 → 启动即装」流水线打通
 
 ---
 

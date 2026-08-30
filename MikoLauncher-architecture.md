@@ -299,6 +299,9 @@ M8 已落地：**主题/布局插件**、**sidecar 打包骨架**、**CSP 补丁
 2. **微软静默刷新失败后的重登录 UI** ✅ 已完成（M9-2，见 `docs/M9-status.md`）；多账号快捷切换仍待定（当前以实例绑定账号承载）。
 3. **插件管理 UI 完善** ✅ 插件启用状态持久化（M9-3，`plugin-state.json`，见 `docs/M9-status.md`）；hash 校验失败告警前端已展示（hash✗）。
 4. **插件分发演进**：Phase 1 自建仓库 + 内置浏览；Phase 2 签名 + 验签 + 封禁清单（见 §九）。**M9-6 插件化 UI 骨架 ✅（已落地）**：顶栏导航与页面路由改由 `ui.getManifest.views` 驱动（sidecar `UiRegistryService` 种子化内置五视图 + `registerView()`；前端导航渲染自 manifest + `router.addRoute` 动态注册插件视图 → `PluginHtmlView`）。**交互承载边界**：插件视图当前 `type='html'`（v-html，静态/装饰），组件级交互（Vue 组件、可执行逻辑、调 Rust）留待分发演进 Phase 2（与 §九 Phase 2 的运行时加载 Vue 模块方向一致）。
+5. **M10-1 小组件面板体系 ✅（已落地，见 `docs/M10-status.md`）**：把主页 `home-widget` 区升级为**小组件面板**——新增 `UiWidgetSchema` + `UiManifestSchema.widgets` + sidecar `registerWidget()`；关键是把小组件从「布局 slot 每 slot 单贡献覆盖」限制中独立出来（widgets 域全量返回）→ 多小组件可并存、可独立启停（小组件即 Phase 0 插件，复用 hash 校验 / plugin-state / effect 回滚）。前端 `stores/ui.ts` 加 `widgets`，`App.vue` 主页渲染成响应式卡片网格；示例 `widget-text`（文字小组件）+ demo-layout 迁移。
+   **M10-2/3 已追加**：①下拉菜单改**单列纵排**，「编辑」独立成格紧跟「主页」下方，删除示例视图插件 `demo-view`（导航只余 5 内置）；②主页小组件面板改为**自由像素拖拽画布**（绝对定位，编辑态拖卡片本体移动、拖右下角把手调大小，退出锁定并持久化到 localStorage，取代 grid 网格与档位按钮）；③文字小组件支持**编辑态改文字**（插件 html 里 `<span class="wt-text" data-edit-text>` 可编辑插槽，前端 `stores/home.ts` 存文字覆盖并替换渲染）。
+   **M10-4 账号小组件 ✅（已追加）**：新增 `plugins/widget-account/`（registerWidget 外壳）+ `components/AccountWidget.vue` —— 面板显示所有账号（微软账号真实 Mojang 头像 `crafatar.com/avatars/<mc-uuid>`、CSP `img-src` 放行 crafatar，离线账号首位色块占位），点选「当前账号」`home.currentAccount` 持久化。这是首个「动态数据小组件」：账号数据运行时 + 交互点选，故 `HomeView` 按 key 特判渲染 Vue 组件（非 v-html），构成动态小组件的扩展通道；后续时钟/天气等复用。数据源均为插件/账号贡献不暴露。后续：更多小组件实例（时钟/天气/系统监控）、卡片内交互深化（复用 actions 或 Phase 2 组件级）。
 
 ---
 
