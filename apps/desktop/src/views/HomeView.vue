@@ -1,100 +1,114 @@
 <script setup lang="ts">
 /**
- * HomeView —— 首页：小组件面板（M10-1 渲染 + M10-2 编辑管理 + M10-3 自由像素拖拽）。
+ * HomeView —— 首页：小组件面板（方案 B：相对容器缩放）。
  *
- * 小组件面板只挂在首页路由：多个 Phase 0 小组件插件贡献的类型（uiStore.widgets）经
- * homeStore 编排成面板上的实例（隐藏哪些 / 自由像素布局 / 文字覆盖），持久化到 localStorage。
+ * 每张卡片用**设计坐标系**里的绝对像素 {x,y,w,h} 存储；渲染时按当前容器宽度相对
+ * 设计宽（DESIGN_W=1100）的比例 `scale = curW / DESIGN_W` 整体缩放坐标与尺寸 ——
+ * 窗口调整大小时所有卡片一起等比缩放：从大到小不溢出、从小到大不留大空白，且手感
+ * 与直觉一致（依旧是自由像素拖拽移动 / 右下把手缩放）。
  *
- * 编辑态（iPhone 主屏编辑语义）经下拉「首页」格的「编辑」进入（App.vue 切 home.editing）：
- *   - 面板为绝对定位画布：拖动卡片本体改位置（move），拖右下角把手改大小（resize）
- *   - 卡片左上角「−」移除、可编辑文字的小组件显示文字输入框
- *   - 顶部横条：「添加小组件 +」打开小组件库弹层、「完成」退出编辑态
- * 非编辑态卡片锁定但仍按布局绝对定位显示。
+ * 编辑态（下拉「首页」→「编辑」）：
+ *   - 拖动卡片本体 → 改变位置
+ *   - 拖右下角把手 → 改变大小（拖拽期间最小尺寸受限）
+ *   - 左上「−」移除、右上「＋」放大一档、底部「←/→」调顺序
+ *   - 顶部横条：「添加小组件 +」/「重置面板」/「完成」
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUiStore } from '../stores/ui'
-import { useHomeStore, CANVAS_PAD } from '../stores/home'
+import {
+  useHomeStore,
+  DESIGN_W,
+  MIN_W,
+  MIN_H,
+  type WidgetLayout,
+} from '../stores/home'
 import AccountWidget from '../components/AccountWidget.vue'
+import QuickInstancesWidget from '../components/QuickInstancesWidget.vue'
+import DownloadsWidget from '../components/DownloadsWidget.vue'
+import ThemeWidget from '../components/ThemeWidget.vue'
 
 const uiStore = useUiStore()
 const home = useHomeStore()
 
-/** 小组件库弹层是否打开 */
 const galleryOpen = ref(false)
 
-/** 拖拽中的状态（mode=移动 / 调整大小，start=起始布局，sx/sy=指针起点） */
-const drag = ref<
-  | { mode: 'move' | 'resize'; key: string; start: { x: number; y: number; w: number; h: number }; sx: number; sy: number }
-  | null
->(null)
+/** 画布容器引用 + 当前宽度（ResizeObserver 测量） */
+const canvasEl = ref<HTMLElement | null>(null)
+const containerW = ref(DESIGN_W)
+let ro: ResizeObserver | null = null
 
-const MIN_W = 170
-const MIN_H = 86
-
-onMounted(() => {
-  if (!uiStore.manifest) uiStore.refresh()
+/** 当前缩放比（相对设计宽） */
+const scale = computed(() => {
+  const w = containerW.value
+  const s = w / DESIGN_W
+  return Math.max(0.4, Math.min(1.6, s))
 })
 
-// 进入编辑态时，为可编辑文字的小组件预填插件默认文字（此前未编辑过的），
-// 让输入框直接显示内容、可实时改。
-watch(
-  () => home.editing,
-  (editing) => {
-    if (!editing) return
-    for (const w of home.panelWidgets) {
-      if (!home.hasEditableText(w.key)) continue
-      if (home.textOf(w.key) != null) continue
-      const m = w.html.match(/<span class="wt-text"[^>]*>([\s\S]*?)<\/span>/)
-      if (m) home.setText(w.key, m[1] ?? '')
-    }
-  },
-)
+/** 画布高度：垂直方向不缩放，用设计坐标的底部高度原值。 */
+const canvasHeight = computed(() => home.canvasHeight)
 
-/** 从插件默认文字（无覆盖时）取当前显示文字，用于非编辑态与输入框展示 */
-function displayText(w: { key: string; html: string }): string {
-  const t = home.textOf(w.key)
-  if (t != null) return t
-  const m = w.html.match(/<span class="wt-text"[^>]*>([\s\S]*?)<\/span>/)
-  return m?.[1] ?? ''
+/** 某卡片渲染用几何：只对水平方向（x/w）应用容器缩放，垂直（y/h）保持设计坐标原值。 */
+function rectStyle(l: WidgetLayout) {
+  return {
+    left: (l.x * scale.value) + 'px',
+    top: l.y + 'px',
+    width: (l.w * scale.value) + 'px',
+    height: l.h + 'px',
+  }
 }
 
-/** 卡片指针按下：编辑态下开始 move / resize 拖拽。 */
-function onCardPointerDown(
-  w: { key: string },
-  e: PointerEvent,
-) {
+/** 水平方向的屏幕像素 → 设计坐标（除 scale）；垂直方向不缩放，直接返回 px（1:1）。 */
+function toDesignX(px: number): number {
+  return px / scale.value
+}
+
+/* ---- 拖拽移动 / 缩放（编辑态，自由像素 + 容器缩放） ---- */
+type DragMode = 'move' | 'resize'
+const drag = ref<{
+  mode: DragMode
+  uid: string
+  start: WidgetLayout
+  sx: number
+  sy: number
+} | null>(null)
+
+function onCardPointerDown(uid: string, e: PointerEvent) {
   if (!home.editing) return
   const target = e.target as HTMLElement
-  // 命中按钮 / 文字输入框 / 弹层时不进入拖拽
-  if (target.closest('.wg-btn, .wt-edit-input, .gallery-overlay, .gallery-panel')) return
-  const isResize = !!target.closest('.wg-resize')
-  const start = home.layoutOf(w.key)
-  drag.value = {
-    mode: isResize ? 'resize' : 'move',
-    key: w.key,
-    start: { ...start },
-    sx: e.clientX,
-    sy: e.clientY,
-  }
-  window.addEventListener('pointermove', onDragMove)
-  window.addEventListener('pointerup', onDragEnd)
+  if (target.closest('.wg-btn, .wg-resize, .wt-edit-input, .gallery-overlay')) return
+  const w = home.panelWidgets.find((x) => x.uid === uid)
+  if (!w) return
+  e.preventDefault()
+  drag.value = { mode: 'move', uid, start: { ...w.layout }, sx: e.clientX, sy: e.clientY }
+  window.addEventListener('pointermove', onPtrMove)
+  window.addEventListener('pointerup', onPtrUp)
 }
 
-/** 拖拽中：根据指针位移更新布局（move 位移左上角；resize 改宽高，双下限约束）。 */
-function onDragMove(e: PointerEvent) {
+function onResizePointerDown(uid: string, e: PointerEvent) {
+  if (!home.editing) return
+  const w = home.panelWidgets.find((x) => x.uid === uid)
+  if (!w) return
+  e.preventDefault()
+  e.stopPropagation()
+  drag.value = { mode: 'resize', uid, start: { ...w.layout }, sx: e.clientX, sy: e.clientY }
+  window.addEventListener('pointermove', onPtrMove)
+  window.addEventListener('pointerup', onPtrUp)
+}
+
+function onPtrMove(e: PointerEvent) {
   const d = drag.value
   if (!d) return
-  const dx = e.clientX - d.sx
-  const dy = e.clientY - d.sy
+  const dx = toDesignX(e.clientX - d.sx)
+  const dy = e.clientY - d.sy // 垂直方向不缩放，1:1
   if (d.mode === 'move') {
-    home.setLayout(d.key, {
-      x: Math.max(CANVAS_PAD, d.start.x + dx),
-      y: Math.max(CANVAS_PAD, d.start.y + dy),
+    home.setLayout(d.uid, {
+      x: Math.max(-MIN_W, d.start.x + dx),
+      y: Math.max(-MIN_H, d.start.y + dy),
       w: d.start.w,
       h: d.start.h,
     })
   } else {
-    home.setLayout(d.key, {
+    home.setLayout(d.uid, {
       x: d.start.x,
       y: d.start.y,
       w: Math.max(MIN_W, d.start.w + dx),
@@ -102,97 +116,115 @@ function onDragMove(e: PointerEvent) {
     })
   }
 }
-
-/** 拖拽结束：移除全局监听。 */
-function onDragEnd() {
-  window.removeEventListener('pointermove', onDragMove)
-  window.removeEventListener('pointerup', onDragEnd)
+function onPtrUp() {
+  window.removeEventListener('pointermove', onPtrMove)
+  window.removeEventListener('pointerup', onPtrUp)
   drag.value = null
+}
+
+/** 右上「＋」：放大一档（宽高各 +0.25 设计宽的比例）。 */
+function bumpUp(uid: string) {
+  const w = home.panelWidgets.find((x) => x.uid === uid)
+  if (!w) return
+  home.setLayout(uid, { ...w.layout, w: w.layout.w + Math.round(DESIGN_W * 0.1), h: w.layout.h + 40 })
+}
+
+function resetPanelToDefault() {
+  if (!window.confirm('恢复为默认面板？将清空当前对小组件位置/大小/文字的调整。')) return
+  home.resetLayout()
+}
+
+onMounted(() => {
+  if (!uiStore.manifest) uiStore.refresh()
+  // 先行量一次再挂 RO，避免初次不触发导致 containerW 停在初始 DESIGN_W（scale 恒 1）→ 窗口缩放失效
+  if (canvasEl.value) containerW.value = canvasEl.value.clientWidth
+  ro = new ResizeObserver((entries) => {
+    const entry = entries[0]
+    const w = entry?.contentRect?.width ?? canvasEl.value?.clientWidth ?? containerW.value
+    if (w > 0) containerW.value = w
+  })
+  if (canvasEl.value) ro.observe(canvasEl.value)
+})
+onUnmounted(() => ro?.disconnect())
+
+watch(
+  () => home.editing,
+  (editing) => {
+    if (!editing) return
+    for (const w of home.panelWidgets) {
+      if (!home.hasEditableText(w.uid)) continue
+      if (home.textOf(w.uid) != null) continue
+      const m = w.html.match(/<span class="wt-text"[^>]*>([\s\S]*?)<\/span>/)
+      if (m) home.setText(w.uid, m[1] ?? '')
+    }
+  },
+)
+
+function displayText(w: { uid: string; html: string }): string {
+  const t = home.textOf(w.uid)
+  if (t != null) return t
+  const m = w.html.match(/<span class="wt-text"[^>]*>([\s\S]*?)<\/span>/)
+  return m?.[1] ?? ''
 }
 </script>
 
 <template>
   <section class="home-view">
-    <!-- 顶部：编辑态横条（仅编辑态显示） -->
+    <!-- 顶部：编辑态横条 -->
     <div v-if="home.editing" class="home-edit-bar">
-      <button
-        type="button"
-        class="editbar-btn primary"
-        :disabled="!home.hasRemoved"
-        @click="galleryOpen = true"
-      >
+      <button type="button" class="editbar-btn primary" :disabled="!home.hasRemoved" @click="galleryOpen = true">
         添加小组件 +
       </button>
-      <span class="editbar-hint">拖动卡片换位置 · 拖右下角改大小 · 「−」移除</span>
-      <button type="button" class="editbar-btn" @click="home.exitEditing(); galleryOpen = false">
-        完成
-      </button>
+      <span class="editbar-hint">拖动卡片换位置 · 拖右下角把手改大小 · 窗口变化整体等比缩放</span>
+      <button type="button" class="editbar-btn" title="恢复默认面板" @click="resetPanelToDefault()">重置面板</button>
+      <button type="button" class="editbar-btn" @click="home.exitEditing(); galleryOpen = false">完成</button>
     </div>
 
-    <!-- 小组件画布：绝对定位层，高随布局内容自适应 -->
+    <!-- 小组件画布：绝对定位，卡片坐标/尺寸按容器宽度等比缩放 -->
     <div
       v-if="home.panelWidgets.length"
+      ref="canvasEl"
       class="widget-canvas"
       :class="{ editing: home.editing }"
-      :style="{ height: home.canvasHeight + 'px' }"
+      :style="{ height: canvasHeight + 'px' }"
     >
       <article
         v-for="w in home.panelWidgets"
-        :key="'wg-' + w.key"
+        :key="'wg-' + w.uid"
         class="widget-card"
-        :class="{ editing: home.editing, dragging: !!(drag && drag.key === w.key) }"
-        :style="{
-          left: home.layoutOf(w.key).x + 'px',
-          top: home.layoutOf(w.key).y + 'px',
-          width: home.layoutOf(w.key).w + 'px',
-          height: home.layoutOf(w.key).h + 'px',
-        }"
-        @pointerdown="onCardPointerDown(w, $event)"
+        :class="{ editing: home.editing }"
+        :style="rectStyle(w.layout)"
+        @pointerdown="onCardPointerDown(w.uid, $event)"
       >
-        <header class="widget-card-head">
-          <span class="widget-title">{{ w.title }}</span>
-
-          <!-- 编辑态：左上角「−」移除按钮 -->
-          <button
-            v-if="home.editing"
-            type="button"
-            class="wg-btn wg-remove"
-            :title="`移除「${w.title}」`"
-            @click="home.remove(w.key)"
-          >−</button>
-        </header>
+        <!-- 编辑态：左上「−」移除 -->
+        <button v-if="home.editing" type="button" class="wg-btn wg-remove wg-remove-float" :title="`移除「${w.title}」`" @click="home.remove(w.uid)">−</button>
+        <!-- 编辑态：右上「＋」放大一档 -->
+        <button v-if="home.editing" type="button" class="wg-btn wg-size-float" title="放大一档" @click="bumpUp(w.uid)">＋</button>
 
         <div class="widget-card-body">
-          <!-- M10-4：账号小组件是动态数据 + 需交互点选的卡片，特判渲染组件而非 v-html -->
           <AccountWidget v-if="w.key === 'widget-account'" />
-          <!-- 其余小组件按插件贡献 html 渲染（含 wt-text 文字覆盖） -->
-          <div v-else v-html="home.renderHtml(w.key, w.html)"></div>
+          <QuickInstancesWidget v-else-if="w.key === 'widget-quick-instances'" />
+          <DownloadsWidget v-else-if="w.key === 'widget-download'" />
+          <ThemeWidget v-else-if="w.key === 'widget-theme'" />
+          <div v-else v-html="home.renderHtml(w.uid)"></div>
 
-          <!-- 编辑态：可编辑文字的小组件 → 文字输入框 -->
           <textarea
-            v-if="home.editing && home.hasEditableText(w.key)"
+            v-if="home.editing && home.hasEditableText(w.uid)"
             class="wt-edit-input"
             :value="displayText(w)"
             placeholder="输入文字…"
-            @input="home.setText(w.key, ($event.target as HTMLTextAreaElement).value)"
+            @input="home.setText(w.uid, ($event.target as HTMLTextAreaElement).value)"
           ></textarea>
         </div>
 
-        <!-- 编辑态：右下角调大小把手 -->
-        <div v-if="home.editing" class="wg-resize" title="拖动改变大小"></div>
+        <!-- 编辑态：右下角拖拽缩放把手 -->
+        <div v-if="home.editing" class="wg-resize" title="拖动改变大小" @pointerdown="onResizePointerDown(w.uid, $event)"></div>
       </article>
     </div>
 
     <p v-else class="muted">（主页暂无小组件。可到插件页启用小组件插件后回到这里。）</p>
 
-    <!-- 首页说明 -->
-    <div class="home-intro">
-      <h1>MikoLauncher</h1>
-      <p>在顶部 MikoLauncher 下拉的「编辑」可调整主页小组件的位置、大小与文字。</p>
-      <p class="badge">面板小组件由 Phase 0 插件贡献 · 当前 {{ home.panelWidgets.length }} 个在面板</p>
-    </div>
-
-    <!-- 小组件库弹层：编辑态点「+」打开，列出被隐藏（可加回）的小组件 -->
+    <!-- 小组件库弹层 -->
     <div v-if="galleryOpen" class="gallery-overlay" @click.self="galleryOpen = false">
       <div class="gallery-panel">
         <header class="gallery-head">
@@ -200,264 +232,139 @@ function onDragEnd() {
           <button type="button" class="gallery-close" @click="galleryOpen = false">✕</button>
         </header>
         <ul v-if="home.galleryWidgets.length" class="gallery-list">
-          <li v-for="g in home.galleryWidgets" :key="'gal-' + g.key">
+          <li v-for="g in home.galleryWidgets" :key="'gal-' + g.key + '-' + g.title">
             <span class="gallery-title">{{ g.title }}</span>
             <span class="gallery-desc" v-html="g.html"></span>
             <button type="button" class="gallery-add" @click="home.add(g.key)">+</button>
           </li>
         </ul>
-        <p v-else class="gallery-empty">面板上已展示全部小组件，无更多可添加。</p>
+        <p v-else class="gallery-empty">暂无可添加的小组件类型（请先在插件页启用小组件插件）。</p>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.home-view {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
+.home-view { display: flex; flex-direction: column; gap: 0.6rem; }
 
 /* ---- 编辑态顶部横条 ---- */
 .home-edit-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.5rem 0.85rem;
-  background: var(--bg-elevated, #fdfdfd);
-  border: 1px dashed var(--accent, #77636c);
-  border-radius: var(--radius, 12px);
+  display: flex; align-items: center; gap: 0.7rem; padding: 0.5rem 0.85rem;
+  background: var(--bg-elevated, #fdfdfd); border: 1px dashed var(--accent, #77636c);
+  border-radius: var(--radius, 12px); flex-wrap: wrap;
 }
 .editbar-btn {
-  padding: 0.35rem 0.85rem;
-  font-size: 0.85rem;
-  border: 1px solid var(--border, #c9bec3);
-  border-radius: var(--radius, 8px);
-  background: transparent;
-  color: var(--text, #3a3436);
-  cursor: pointer;
-  white-space: nowrap;
+  padding: 0.35rem 0.85rem; font-size: 0.85rem; border: 1px solid var(--border, #c9bec3);
+  border-radius: var(--radius, 8px); background: transparent; color: var(--text, #3a3436);
+  cursor: pointer; white-space: nowrap;
 }
-.editbar-btn.primary {
-  background: var(--accent, #77636c);
-  border-color: var(--accent, #77636c);
-  color: #fff;
-  font-weight: 600;
-}
-.editbar-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.editbar-hint {
-  flex: 1;
-  font-size: 0.78rem;
-  color: var(--text-dim, #8b8490);
-}
+.editbar-btn.primary { background: var(--accent, #77636c); border-color: var(--accent, #77636c); color: #fff; font-weight: 600; }
+.editbar-btn:disabled { opacity: 0.5; cursor: default; }
+.editbar-hint { flex: 1; font-size: 0.78rem; color: var(--text-dim, #8b8490); min-width: 180px; }
 
-/* ---- 小组件画布：绝对定位层（自由像素布局） ---- */
-.widget-canvas {
-  position: relative;
-  min-height: 60vh; /* 空画布也给可拖拽的编辑区域 */
-  transition: height 0.12s ease;
-}
-/* 编辑态画布给一个淡底提示可拖区域 */
+/* ---- 画布：绝对定位层 ---- */
+.widget-canvas { position: relative; min-height: 200px; overflow: visible; }
 .widget-canvas.editing {
   background: repeating-linear-gradient(
-    to bottom,
-    rgba(119, 99, 108, 0.04) 0,
-    rgba(119, 99, 108, 0.04) 23px,
-    transparent 23px,
-    transparent 24px
+    to bottom, rgba(119, 99, 108, 0.05) 0, rgba(119, 99, 108, 0.05) 22px, transparent 22px, transparent 23px
   );
   border: 1px dashed rgba(119, 99, 108, 0.35);
   border-radius: var(--radius, 12px);
 }
 
+/* ---- 卡片：苹果玻璃，绝对定位 ---- */
 .widget-card {
-  position: absolute;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-elevated, #fdfdfd);
-  border: 1px solid var(--border, #d8cdd2);
-  border-radius: var(--radius, 12px);
-  box-shadow: 0 1px 3px rgba(40, 30, 35, 0.06);
+  position: absolute; box-sizing: border-box; display: flex; flex-direction: column;
+  background: rgba(255, 255, 255, 0.32);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: var(--radius, 18px);
+  box-shadow: 0 6px 22px rgba(40, 30, 35, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.55);
   overflow: hidden;
-  transition: border-color 0.15s ease;
 }
-.widget-card.editing {
-  border: 1.5px dashed var(--accent, #77636c);
-  cursor: move;
-  user-select: none;
-}
-.widget-card.editing.dragging {
-  box-shadow: 0 12px 28px rgba(40, 30, 35, 0.22);
-  opacity: 0.9;
-}
-/* 非编辑态锁定（不捕捉拖拽光标） */
-.widget-card:not(.editing) {
-  cursor: default;
-}
-
-.widget-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  padding: 0.45rem 0.8rem;
-  font-size: 0.85rem;
-  font-weight: 650;
-  color: var(--text-dim, #8b8490);
-  border-bottom: 1px solid var(--border, #e6dde0);
-  flex-shrink: 0;
-}
-.widget-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.widget-card.editing { border: 1.5px dashed rgba(255, 255, 255, 0.9); background: rgba(255, 255, 255, 0.28); cursor: move; user-select: none; }
 
 .widget-card-body {
-  flex: 1;
-  overflow: auto;
-  padding: 0.55rem 0.8rem;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: var(--text, #3a3436);
+  flex: 1; min-height: 0; overflow: auto; padding: 0.6rem 0.8rem;
+  font-size: 0.9rem; line-height: 1.5; color: var(--text, #3a3436);
 }
-.widget-card-body :deep(p) { margin: 0.25rem 0; }
+.widget-card-body :deep(p) { margin: 0.35rem 0; }
+.widget-card-body :deep(h1), .widget-card-body :deep(h2), .widget-card-body :deep(h3),
+.widget-card-body :deep(h4), .widget-card-body :deep(h5), .widget-card-body :deep(h6) {
+  margin: 0.5rem 0 0.25rem; line-height: 1.3; font-weight: 700;
+}
+.widget-card-body :deep(h1) { font-size: 1.2rem; }
+.widget-card-body :deep(h2) { font-size: 1.1rem; }
+.widget-card-body :deep(h3) { font-size: 1rem; }
+.widget-card-body :deep(h4) { font-size: 0.95rem; }
+.widget-card-body :deep(h5), .widget-card-body :deep(h6) { font-size: 0.9rem; }
+.widget-card-body :deep(ul), .widget-card-body :deep(ol) { margin: 0.3rem 0; padding-left: 1.2rem; }
+.widget-card-body :deep(li) { margin: 0.15rem 0; }
+.widget-card-body :deep(blockquote) {
+  margin: 0.4rem 0; padding: 0.3rem 0.7rem; border-left: 3px solid var(--accent, #77636c);
+  color: var(--text-dim, #8b8490); background: var(--accent-soft, rgba(119, 99, 108, 0.08)); border-radius: 0 6px 6px 0;
+}
+.widget-card-body :deep(blockquote p) { margin: 0.2rem 0; }
+.widget-card-body :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em;
+  background: rgba(119, 99, 108, 0.12); padding: 0.08em 0.35em; border-radius: 4px;
+}
+.widget-card-body :deep(pre) {
+  margin: 0.4rem 0; padding: 0.5rem 0.7rem; background: rgba(40, 30, 35, 0.85); color: #f0ecee;
+  border-radius: 8px; overflow: auto; font-size: 0.82rem;
+}
+.widget-card-body :deep(pre code) { background: transparent; padding: 0; color: inherit; }
+.widget-card-body :deep(hr) { border: none; border-top: 1px solid var(--border, #c9bec3); margin: 0.5rem 0; }
+.widget-card-body :deep(a) { color: var(--accent, #4a90e2); text-decoration: none; }
+.widget-card-body :deep(a:hover) { text-decoration: underline; }
 
 /* ---- 编辑态控件 ---- */
 .wg-btn {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.95rem;
-  line-height: 1;
-  border: 1px solid var(--accent, #77636c);
-  border-radius: 50%;
-  background: var(--accent, #77636c);
-  color: #fff;
-  cursor: pointer;
+  flex-shrink: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.95rem; line-height: 1; border: 1px solid var(--accent, #77636c); border-radius: 50%;
+  background: var(--accent, #77636c); color: #fff; cursor: pointer;
   transition: transform 0.08s ease, background 0.12s ease;
 }
 .wg-btn:hover { transform: scale(1.12); }
 .wg-remove { background: rgb(214, 78, 96); border-color: rgb(214, 78, 96); }
+.wg-remove-float { position: absolute; top: 6px; left: 6px; z-index: 3; }
+.wg-size-float { position: absolute; top: 6px; right: 6px; z-index: 3; background: rgba(255,255,255,0.55); border-color: rgba(255,255,255,0.8); color: var(--text, #3a3436); font-size: 0.8rem; font-weight: 600; }
 
-/* 右下角调大小把手（拖这个改宽高） */
+/* 右下角拖拽缩放把手（编辑态；加大命中区 + 显眼背景） */
 .wg-resize {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 20px;
-  height: 20px;
-  cursor: nwse-resize;
-  touch-action: none;
+  position: absolute; right: 0; bottom: 0; width: 36px; height: 40px; cursor: nwse-resize;
+  touch-action: none; z-index: 6;
+  display: flex; align-items: flex-end; justify-content: flex-end;
+  border-bottom-right-radius: inherit;
+  background: linear-gradient(135deg, transparent 40%, rgba(255, 255, 255, 0.35));
 }
 .wg-resize::after {
-  content: '';
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 9px;
-  height: 9px;
-  border-right: 2px solid var(--accent, #77636c);
-  border-bottom: 2px solid var(--accent, #77636c);
+  content: ''; margin: 0 8px 8px 0; width: 12px; height: 12px;
+  border-right: 2.5px solid var(--accent, #77636c); border-bottom: 2.5px solid var(--accent, #77636c);
   border-bottom-right-radius: 2px;
 }
+.wg-resize:hover { background: linear-gradient(135deg, transparent 28%, rgba(119, 99, 108, 0.30)); }
 
-/* 文字编辑输入框（编辑态下可编辑文字的小组件） */
 .wt-edit-input {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 0.5rem;
-  padding: 0.35rem 0.5rem;
-  font: inherit;
-  font-size: 0.85rem;
-  line-height: 1.4;
-  color: var(--text, #3a3436);
-  background: transparent;
-  border: 1px dashed var(--accent, #77636c);
-  border-radius: 8px;
-  resize: vertical;
-  outline: none;
-  min-height: 44px;
+  display: block; width: 100%; box-sizing: border-box; margin-top: 0.5rem; padding: 0.35rem 0.5rem;
+  font: inherit; font-size: 0.85rem; line-height: 1.4; color: var(--text, #3a3436); background: transparent;
+  border: 1px dashed var(--accent, #77636c); border-radius: 8px; resize: vertical; outline: none; min-height: 44px;
 }
-.wt-edit-input:focus {
-  border-style: solid;
-  background: rgba(119, 99, 108, 0.05);
-}
+.wt-edit-input:focus { border-style: solid; background: rgba(119, 99, 108, 0.05); }
 
-/* ---- 首页说明 ---- */
-.home-intro h1 { margin: 0.4rem 0 0.2rem; font-size: 1.4rem; }
-.home-intro p { margin: 0.25rem 0; color: var(--text, #3a3436); }
 .muted { color: var(--text-dim, #8b8490); }
-.badge {
-  display: inline-block;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  background: var(--accent-soft, rgba(119, 99, 108, 0.14));
-  color: var(--accent, #77636c);
-  font-size: 0.8rem;
-}
 
-/* ---- 小组件库弹层 ---- */
-.gallery-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(30, 24, 28, 0.45);
-}
-.gallery-panel {
-  width: min(420px, 88vw);
-  max-height: 72vh;
-  overflow: auto;
-  background: var(--bg-elevated, #fdfdfd);
-  border-radius: var(--radius, 16px);
-  box-shadow: 0 20px 48px rgba(20, 16, 20, 0.35);
-  padding: 0.6rem;
-}
-.gallery-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.4rem 0.6rem;
-  font-weight: 650;
-}
-.gallery-close {
-  border: none;
-  background: transparent;
-  color: var(--text-dim, #8b8490);
-  font-size: 1rem;
-  cursor: pointer;
-}
+.gallery-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(30, 24, 28, 0.45); }
+.gallery-panel { width: min(420px, 88vw); max-height: 72vh; overflow: auto; background: var(--bg-elevated, #fdfdfd); border-radius: var(--radius, 16px); box-shadow: 0 20px 48px rgba(20, 16, 20, 0.35); padding: 0.6rem; }
+.gallery-head { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.6rem; font-weight: 650; }
+.gallery-close { border: none; background: transparent; color: var(--text-dim, #8b8490); font-size: 1rem; cursor: pointer; }
 .gallery-list { list-style: none; margin: 0; padding: 0; }
-.gallery-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 10px;
-}
+.gallery-list li { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.6rem; border-radius: 10px; }
 .gallery-list li:hover { background: var(--accent-soft, rgba(119, 99, 108, 0.1)); }
 .gallery-title { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
 .gallery-desc { flex: 1; font-size: 0.78rem; color: var(--text-dim, #8b8490); overflow: hidden; }
 .gallery-desc :deep(p) { margin: 0; }
-.gallery-add {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 50%;
-  background: var(--accent, #77636c);
-  color: #fff;
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
-}
+.gallery-add { flex-shrink: 0; width: 26px; height: 26px; border: none; border-radius: 50%; background: var(--accent, #77636c); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; }
 .gallery-empty { padding: 0.8rem; color: var(--text-dim, #8b8490); font-size: 0.85rem; }
 </style>

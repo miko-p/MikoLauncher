@@ -1,9 +1,9 @@
 {
-  "name": "widget-text",
+  "name": "widget-quick-instances",
   "version": "1.0.0",
   "api": 1,
   "publisher": "miko-launcher",
   "type": "layout",
   "slot": "home-widget",
-  "hash": "0a7e004218aa6041d6d96c0b59c1e3bde9d3e1caffee37edca8d7299dfee594c"
+  "hash": "bdf2ee46c513b9ea45d869ba9cf3070700e67e26dfc272f66da9fadc41670719"
 }

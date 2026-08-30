@@ -7,7 +7,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import type { Instance, ModpackFile, Mod } from '@miko-launcher/shared'
-import { listInstances, createInstance, launchInstance, updateInstanceAccount, updateInstanceIcon, updateInstanceJavaMajor, removeInstance, getLaunchStatus, checkVersionExists, fetchVersions, modrinthModpackFiles, updateInstanceMods, type LaunchStatusEvent } from '../api'
+import { listInstances, createInstance, launchInstance, updateInstanceAccount, updateInstanceIcon, updateInstanceJavaMajor, removeInstance, getLaunchStatus, checkVersionExists, fetchVersions, modrinthModpackFiles, updateInstanceMods, downloadIconDataUrl, type LaunchStatusEvent } from '../api'
 
 interface CreatePayload {
   name: string
@@ -117,11 +117,32 @@ export const useInstanceStore = defineStore('instances', () => {
     try {
       instances.value = await listInstances()
       sidecarReady.value = true
+      // 惰性补齐：模组包实例若还没存图标（旧库/早期创建），用其 modpack.iconUrl 下载补上，
+      // 使「实例图标跟随模组包」对存量实例也生效。幂等（补上后 icon 非空，下次不再触发）。
+      void backfillModpackIcons()
     } catch (e) {
       error.value = (e as Error).message
       sidecarReady.value = false
     } finally {
       loading.value = false
+    }
+  }
+
+  /** 为缺失图标的模组包实例下载图标（幂等：仅处理 icon 为空且 modpack.iconUrl 存在的实例）。 */
+  async function backfillModpackIcons() {
+    for (const inst of instances.value) {
+      if (inst.icon) continue
+      const iconUrl = inst.modpack?.iconUrl
+      if (!iconUrl) continue
+      try {
+        const dataUrl = await downloadIconDataUrl(iconUrl)
+        if (!dataUrl) continue
+        await updateInstanceIcon(inst.id, dataUrl)
+        const idx = instances.value.findIndex((i) => i.id === inst.id)
+        if (idx >= 0) instances.value[idx] = { ...instances.value[idx], icon: dataUrl }
+      } catch {
+        /* 单个实例图标下载失败不影响其余 */
+      }
     }
   }
 
@@ -173,11 +194,12 @@ export const useInstanceStore = defineStore('instances', () => {
     let created: Instance | undefined
     try {
       created = await createInstance(payload)
-      await fetchInstances()
+      await fetchInstances() // fetchInstances 内部会对模组包实例惰性补齐图标（modpack.iconUrl → icon）
     } catch (e) {
       error.value = (e as Error).message
       return { ok: false, reason: error.value }
     }
+
     // 有 .mrpack 下载地址才去解析清单（导入式/无文件时不填）
     if (fileUrl && created) {
       try {

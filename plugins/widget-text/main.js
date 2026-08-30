@@ -17,8 +17,13 @@ export const version = '1.0.0'
 export const inject = ['uiRegistry']
 
 const TEXT =
-  '这里是一段由「文字小组件」插件贡献的文字。' +
-  '小组件面板让每个小组件独立启停、独立排版，这是第一个实例。'
+  '## 主页小组件\n' +
+  '\n' +
+  '在顶部 **MikoLauncher** 下拉选「编辑」，可调整主页小组件的位置、大小与文字：\n' +
+  '\n' +
+  '- **拖动卡片** — 换位置\n' +
+  '- **拖右下角把手** — 改大小\n' +
+  '- **右上「+」** — 添加小组件\n'
 
 export function apply(ctx) {
   ctx.effect(() => {
@@ -26,11 +31,10 @@ export function apply(ctx) {
       key: 'widget-text',
       title: '文字小组件',
       order: 0,
-      width: 'auto',
+      width: 'half',
       html:
         '<div class="widget-text">' +
-        `<p style="margin:0 0 .4rem;font-size:.95rem"><span class="wt-text" data-edit-text="${TEXT}">${TEXT}</span></p>` +
-        '<p style="margin:0;font-size:.75rem;color:var(--text-dim,#8b8490)">来自插件 widget-text@1.0.0 · 经插件页可独立禁用</p>' +
+        `<span class="wt-text">${TEXT}</span>` +
         '</div>',
     })
     process.stderr.write('[widget-text] 应用：注册文字小组件卡片\n')

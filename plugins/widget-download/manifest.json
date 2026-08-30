@@ -1,9 +1,9 @@
 {
-  "name": "widget-text",
+  "name": "widget-download",
   "version": "1.0.0",
   "api": 1,
   "publisher": "miko-launcher",
   "type": "layout",
   "slot": "home-widget",
-  "hash": "0a7e004218aa6041d6d96c0b59c1e3bde9d3e1caffee37edca8d7299dfee594c"
+  "hash": "0744ae0b86b0178d2f27817a478fdd371d946766cbaf7e92d8c58565d78f1c00"
 }

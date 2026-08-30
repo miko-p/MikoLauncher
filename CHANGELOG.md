@@ -4,6 +4,17 @@
 
 ## [未发布]
 
+### M14 已添加
+- **实例图标跟随模组包图标**：从 Modrinth 模组包创建实例后，把模组包远程图标下载并转为 data-URI 存进实例 `icon`（新增 Rust `modrinth_download_icon` command 走共享 `HTTP_CLIENT` + base64，前端 CSP 未放行 cdn 故下载放后端）；`instanceStore` 加惰性补齐 `backfillModpackIcons` —— 每次拉列表对「icon 空且 modpack.iconUrl 存在」的实例自动补，存量实例也生效。自定义建实例无该来源，仍用默认占位。
+- **Modrinth 项目独立详情页**：新增路由 `/modrinth/:slug` + `views/ModrinthDetailView.vue` —— 展示图标/标题/简介/统计/支持版本，并复用下载页流程选 MC 版本 + 加载器创建实例（模组包绑定 modpack）。供各小组件/下载按钮「直达模组详情」。
+- **新增小组件插件**（均按 widget-account 模式：插件壳声明 + HomeView 按 key 特判渲染 Vue 组件）：
+  - `widget-download`「下载预览」：把下载页 Modrinth/CurseForge 拉进主页做快速预览 —— 源 tab（CurseForge 仍占位）+ 模组包/模组 tab + 「上一页/下一页」翻页浏览全部（每页条数随组件高度自适应，ResizeObserver 量可用高）；顶栏放大镜按钮跳 `/download?focus=search` 聚焦下载搜索框；点击任一模组直达其 `/modrinth/:slug` 详情。
+  - `widget-quick-instances`「快速实例」：把实例列表渲染成苹果 App 库式圆角磁贴（图标 + 名字），点击进实例详情、磁贴上「▶」一键启动、运行中绿点角标。
+  - `widget-theme`「主题颜色」：**Adobe Color 风格圆形色块选色**，6 组预设配色；点击后通过覆盖 `:root` 的 `--bg`/`--shell-bg`/`--header-bg`/`--accent`/`--accent-soft`/`--header-text` 整套 CSS 变量即时换肤，选择持久化（`miko:theme-color`），重启保持。仅改视觉样式，不影响布局。
+- **文字小组件支持 Markdown 渲染**：`home.ts` 新增安全极简 Markdown 渲染器（标题 `#`、围栏代码块、引用、无序/有序列表、`---`、粗体/斜体/行内代码/链接），内容先 HTML 转义再做结构解析 + 链接 `javascript:` 白名单拦截，杜绝注入；编辑态输入框仍填 Markdown 源码、实时预览。默认提示语改为 Markdown 版操作说明。
+- **主页面板布局重构（方案 B 落地）**：需求「窗口调整后组件自动调整、不溢出不留白」；先后尝试栅格流式（方案 A）与网格单元 + 让位拖拽，均因操作手感不佳放弃，最终定为**相对容器缩放（方案 B）**——保留自由像素拖拽（移动/右下把手缩放），新增设计坐标系（`DESIGN_W=1100`）与 `scale = 当前容器宽/DESIGN_W`：窗口宽度变化时卡片**水平坐标与宽度按比例缩放、高度保持**，垂直方向不缩放。修「重开窗口后缩放失效」：RO 首次回调可能不触发导致 `containerW` 停在初始值 → 挂 RO 前先手动量一次 + 改用 `entry.contentRect.width`。持久化从旧三档/网格迁移为绝对坐标 `{x,y,w,h}`（自动级联默认摆位，丢弃不适用布局）。
+- **补充**：`widget-text` 默认文案改为 Markdown 操作提示；`tmp-90-mk-bridge-ignore.rules` 未纳入提交。全部插件（下载预览/快速实例/主题颜色/文字/账号）启用状态落 `plugin-state.json`。
+
 ### M13 已添加
 - **「下载」页回归独立导航 + 「从模组包开始」跳转过去（仿 Modrinth/HMCL）**：M11 曾把下载收进实例弹窗，但模组包浏览页在 modal 里空间不足撑破；现按用户要求**把「下载」导航页加回**（`BUILTIN_VIEWS` 加 `download`、路由 `/download`、新 `views/DownloadView.vue`），「添加实例 → 从模组包开始」改为**关闭弹窗并跳转 `/download`**，浏览页作为页面主体（空间充足，不再用 modal）。DownloadView 内嵌 `components/ModrinthPackBrowser.vue`：**打开即自动加载模组包列表**（不靠搜索）、左上 **Modrinth/CurseForge 源 tab**（CurseForge 未配 API key → 占位提示）、模组包/模组类型 tab、**排序下拉**（相关度/下载量/关注数/最新发布/最近更新）、搜索框、卡片网格（图标/简介/下载量/支持 MC 版本）+「加载更多」；点开 → 详情选 MC 版本/加载器 + 实例名 → 创建实例（绑定 modpack 引用，首次启动 lighty 自动解析 `.mrpack` 装依赖）。新增 Rust `modrinth_search`(含 `index` 排序)/`modrinth_project`/`modrinth_project_versions` command（`src/core/modrinth.rs`，直接调 Modrinth `/v2/search`，因 lighty 无搜索接口）；shared 新增 `ModpackSchema`/`ModrinthProject`/`ModrinthVersion` + `InstanceSchema.modpack?`；DB 加 `modpack` 列；`launch_game` 挂 `with_mod().with_modrinth_modpack(ModrinthPinned)`。启用 `lighty-modsloader`/`lighty-version` 的 `modrinth` feature。CSP `img-src` 放行 `cdn.modrinth.com`。分页改**上一页/下一页**（按 `offset` 页偏移，显示「第 X / N 页」），替代无限加载。**CurseForge 双源延后**（其搜索 API 需个人 key，UI 已有 tab 占位）。另修「search hit 字段缺失（`follows`≠`followers`）致整条反序列化失败 → 列表被静默滤空显示『没有结果』」——所有字段 `#[serde(default)]` + `alias="follows"` + 单测兜底。详见 `docs/` + skill M13。
 - **实例内查看模组详情（补全「从模组包开始」链路前端）**：`ModrinthPackBrowser` 创建实例后改用 `store.addModpackInstance()` —— 建实例 → 调新 `modrinth_modpack_files`（Rust `resolve_modpack_files` 下载并解析 `.mrpack` 的 `modrinth.index.json`）→ 经 `modpackFilesToMods` 把文件清单（文件名/size/sha1/归属路径/是否客户端必需）填进实例 `mods` → 新 Rust `instance_update_mods`（转发 sidecar `instance.updateMods`）持久化；详情页「模组」栏渲染文件名 + 「必装」标记 + 大小（MB/KB 自动换算）+ 归属路径 + 短 sha1，并显示模组包来源提示。`ModSchema` 加可选 `path`/`clientRequired`、新增 `ModpackFileSchema`。

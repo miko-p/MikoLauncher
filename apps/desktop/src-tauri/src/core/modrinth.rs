@@ -292,6 +292,44 @@ fn urlencode(input: &str) -> String {
     lighty_modsloader::modrinth::api::url_encode(input)
 }
 
+/// 下载远程图片并编码为 data URI（`data:image/<ext>;base64,...`）。
+/// 目的：把 Modrinth 模组包图标存进实例 `icon`（`InstanceSchema.icon` 是 data-URI base64），
+/// 使从模组包创建的实例图标跟随模组包图标。前端 CSP `connect-src` 未放行 cdn，故下载放到 Rust。
+fn mime_from_url(url: &str) -> &'static str {
+    let p = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
+    if p.ends_with(".png") {
+        "png"
+    } else if p.ends_with(".webp") {
+        "webp"
+    } else if p.ends_with(".gif") {
+        "gif"
+    } else if p.ends_with(".svg") {
+        "svg+xml"
+    } else {
+        "jpeg"
+    }
+}
+
+pub async fn download_icon(url: &str) -> Result<String, String> {
+    let resp = client()
+        .get(url)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("下载图标失败: {e}"))?;
+    let body = resp
+        .error_for_status()
+        .map_err(|e| format!("下载图标 HTTP 错误: {e}"))?;
+    let bytes = body.bytes().await.map_err(|e| format!("读取图标失败: {e}"))?;
+    // 图标一般很小；上限防超大图/异常下载塞满 DB
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err(format!("图标文件过大（>2MB）：{} 字节", bytes.len()));
+    }
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/{};base64,{}", mime_from_url(url), b64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

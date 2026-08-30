@@ -212,6 +212,14 @@ async fn modrinth_modpack_files(payload: Value) -> Result<Value, String> {
     serde_json::to_value(files).map_err(|e| e.to_string())
 }
 
+/// modrinth_download_icon —— 下载远程图片并编码为 data URI（存实例 icon，使模组包实例图标跟随模组包）。
+/// payload: { url }  →  返回 `data:image/<ext>;base64,...`
+#[tauri::command]
+async fn modrinth_download_icon(payload: Value) -> Result<String, String> {
+    let url = payload.get("url").and_then(|v| v.as_str()).ok_or_else(|| "缺少 url".to_string())?;
+    crate::core::modrinth::download_icon(url).await
+}
+
 /// 实例列表 —— 转发到 plugin-host sidecar 的 instance.list。
 #[tauri::command]
 fn instance_list(state: tauri::State<'_, AppState>) -> Result<Value, String> {
@@ -744,6 +752,7 @@ pub fn run() {
             modrinth_project,
             modrinth_project_versions,
             modrinth_modpack_files,
+            modrinth_download_icon,
             instance_list,
             instance_create,
             instance_update_account,

@@ -191,6 +191,11 @@ export async function modrinthModpackFiles(fileUrl: string): Promise<ModpackFile
   return files
 }
 
+/** modrinth.downloadIcon —— 下载远程图片并编码为 data URI（存实例 icon，模组包实例图标跟随模组包）。 */
+export async function downloadIconDataUrl(url: string): Promise<string> {
+  return call<string>('modrinth_download_icon', { payload: { url } })
+}
+
 /** instance.updateMods —— 直接覆写实例的 mods 列表（M13：模组包文件清单持久化展示）。 */
 export async function updateInstanceMods(id: string, mods: Mod[]): Promise<Instance> {
   const data = await call<{ instance: Instance }>('instance_update_mods', {

@@ -9,6 +9,7 @@ const builtinRoutes: RouteRecordRaw[] = [
   { path: '/instances/:id', name: 'instanceDetail', component: () => import('../views/InstanceDetailView.vue') },
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
   { path: '/plugins', name: 'plugins', component: () => import('../views/PluginsView.vue') },
+  { path: '/modrinth/:slug', name: 'modrinthDetail', component: () => import('../views/ModrinthDetailView.vue') },
 ]
 
 export const router = createRouter({

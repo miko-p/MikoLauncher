@@ -9,6 +9,7 @@
  *  - 卡片网格点开 → 详情选 MC 版本/加载器 → 创建实例（绑定 modpack，首次启动自动装依赖）
  */
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   modrinthSearch,
   modrinthProjectVersions,
@@ -19,6 +20,7 @@ import type { ModrinthProject, ModrinthVersion } from '@miko-launcher/shared'
 const emit = defineEmits<{ close: []; back: [] }>()
 
 const store = useInstanceStore()
+const route = useRoute()
 
 /** 源：modrinth 现在可用；curseforge 需 API key（占位） */
 const source = ref<'modrinth' | 'curseforge'>('modrinth')
@@ -47,6 +49,9 @@ const selectedVersionId = ref('')
 const instanceName = ref('')
 const creating = ref(false)
 const createErr = ref<string | null>(null)
+
+/** 搜索框引用（供外部 ?focus=search 从主页放大镜跳入聚焦） */
+const searchInput = ref<HTMLInputElement | null>(null)
 
 /** 总页数（向上取整） */
 const totalPages = computed(() => {
@@ -111,6 +116,8 @@ function goNext() {
 async function openDetail(p: ModrinthProject) {
   detail.value = p
   selectedVersionId.value = ''
+  // 实例名默认取模组包名（非法字符替换为 _），用户仍可手动改
+  instanceName.value = sanitizeInstanceName(p.title)
   detailLoading.value = true
   createErr.value = null
   try {
@@ -141,6 +148,21 @@ function primaryFile(v: ModrinthVersion | undefined) {
   return v.files?.find((f) => f.primary) ?? v.files?.[0]
 }
 
+/**
+ * 把任意字符串清洗成合法实例名：跨平台文件/目录名的非法字符、控制字符、首尾空格/点
+ * 统一替换为 `_`。实例名虽不拼目录（dir 用 UUID），但保持命名安全一致，供「从模组包」建实例默认名。
+ */
+function sanitizeInstanceName(name: string): string {
+  // Windows/Unix 共通的保留与非法字符 + 控制字符
+  const cleaned = name
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    .trim()
+    .replace(/^\.+$/, '') // 纯点串视为空
+    // 首尾的 dot/空格（Windows 路径收尾非法）去掉开头，收尾的也换 _
+    .replace(/[. ]$/, '_')
+  return cleaned
+}
+
 async function createFromModpack() {
   const p = detail.value
   const v = selectedVersion.value
@@ -159,9 +181,10 @@ async function createFromModpack() {
   creating.value = true
   createErr.value = null
   try {
+    const finalName = sanitizeInstanceName(instanceName.value) || 'instance'
     const ok = await store.addModpackInstance(
       {
-        name: instanceName.value.trim(),
+        name: finalName,
         versionId: mcVersion,
         modLoader: loader,
         modpack: {
@@ -203,6 +226,10 @@ function isModpackProject(p: ModrinthProject): boolean {
 // 打开即自动加载热门模组包列表（HMCL 式，不靠搜索）
 onMounted(() => {
   void runSearch(1)
+  // 来自主页「下载预览」放大镜（?focus=search）：自动聚焦搜索框，方便直接输入
+  if (route.query.focus === 'search') {
+    setTimeout(() => searchInput.value?.focus(), 80)
+  }
 })
 </script>
 
@@ -227,7 +254,7 @@ onMounted(() => {
         </select>
         <!-- 搜索框 -->
         <form class="search" @submit.prevent="submitSearch">
-          <input v-model="query" placeholder="搜索…" />
+          <input ref="searchInput" v-model="query" placeholder="搜索…" />
           <button type="submit" :disabled="loading">搜索</button>
         </form>
       </div>
