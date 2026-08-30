@@ -24,3 +24,6 @@ apps/desktop/src-tauri/binaries/
 # pnpm
 .pnpm-store/
 /-l
+
+# 本地系统调试产物（BTK/udev 临时规则，不入库）
+tmp-90-mk-bridge-ignore.rules
