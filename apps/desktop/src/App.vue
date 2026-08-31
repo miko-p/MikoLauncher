@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { onMounted, watch, computed } from 'vue'
+import { onMounted, onUnmounted, watch, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from './stores/ui'
 import { useHomeStore } from './stores/home'
 import { useInstanceStore } from './stores/instances'
+import { useAccountStore } from './stores/accounts'
 import { syncPluginRoutes } from './router'
 
 const router = useRouter()
 const uiStore = useUiStore()
 const home = useHomeStore()
 const instances = useInstanceStore()
+const accounts = useAccountStore()
 
 /** 首页「编辑」：先跳到首页再进入主页小组件编辑态（编辑面板只挂在首页路由）。 */
 function editHome() {
@@ -40,6 +42,179 @@ function refreshUi() {
   uiStore.refresh()
 }
 
+/* ---- 下拉导航分组（Minecraft.net megamenu 式：类别 + 多样形态，主页/编辑同组） ---- */
+type NavItem =
+  | { kind: 'link'; key: string; label: string; path: string }
+  | { kind: 'edit' }
+
+interface NavGroup {
+  title: string
+  variant: 'home' | 'list' | 'card'
+  items: NavItem[]
+}
+
+/** 内置视图按功能归类；每类可配不同展示形态（首页/资源=左右并排大磁贴，单项类别=整行大色块）。 */
+const NAV_GROUPS: { title: string; variant: NavGroup['variant']; keys: string[] }[] = [
+  { title: '首页', variant: 'home', keys: ['home'] },
+  { title: '资源', variant: 'home', keys: ['download', 'instances'] },
+  { title: '账户', variant: 'card', keys: ['accounts'] },
+  { title: '插件', variant: 'card', keys: ['plugins'] },
+]
+
+const navGroups = computed<NavGroup[]>(() => {
+  const views = uiStore.views
+  const byKey = new Map(views.map((v) => [v.key, v]))
+  const assigned = new Set<string>()
+  const groups: NavGroup[] = []
+  for (const g of NAV_GROUPS) {
+    const items: NavItem[] = []
+    for (const k of g.keys) {
+      const v = byKey.get(k)
+      if (!v) continue
+      assigned.add(k)
+      items.push({ kind: 'link', key: v.key, label: v.label, path: v.path })
+    }
+    // 首页类别额外带「编辑」动作磁贴，与「主页」并排同区（编辑态反色显示「完成」）
+    if (g.keys.includes('home') && items.length) items.push({ kind: 'edit' })
+    if (items.length) groups.push({ title: g.title, variant: g.variant, items })
+  }
+  // 未归类（插件动态注册）视图归入「更多」
+  const rest = views.filter((v) => !assigned.has(v.key))
+  if (rest.length) {
+    groups.push({
+      title: '更多',
+      variant: 'list',
+      items: rest.map((v) => ({ kind: 'link' as const, key: v.key, label: v.label, path: v.path })),
+    })
+  }
+  return groups
+})
+
+/** 左边栏当前选中的主类别（Minecraft.net 式：左侧四选 + 右侧显示选中内容） */
+const activeNav = ref('首页')
+
+/** 品牌下拉是否展开：跟随 hover —— 鼠标在顶栏 brand（含下拉面板）内展开，移出即收起 */
+const menuOpen = ref(false)
+
+/** 右侧内容 = 当前选中类别的分组 */
+const currentGroup = computed<NavGroup | null>(
+  () => navGroups.value.find((g) => g.title === activeNav.value) ?? null,
+)
+
+/** 左侧主选项列表（类别名 + 首个子项的图标 key，用于左侧显示图标） */
+const navTabs = computed(() =>
+  navGroups.value.map((g) => ({
+    title: g.title,
+    iconKey:
+      g.items.find((i): i is Extract<NavItem, { kind: 'link' }> => i.kind === 'link')?.key ?? '',
+  })),
+)
+
+/* ---- 苹果划屏：内容区竖直拖拽 + 键盘↑↓ 切换主视图（首页/下载/实例/账号/插件 固定顺序） ---- */
+const SWIPE_ORDER: { name: string; path: string }[] = [
+  { name: 'home', path: '/' },
+  { name: 'download', path: '/download' },
+  { name: 'instances', path: '/instances' },
+  { name: 'accounts', path: '/accounts' },
+  { name: 'plugins', path: '/plugins' },
+]
+const SWIPE_THRESHOLD = 90
+
+/** 当前页容器（用于跟手 transform + router transition 动画） */
+const swipeHost = ref<HTMLElement | null>(null)
+const swipeY = ref(0)
+const swiping = ref(false)
+/** 本次切页动画方向：next=向上推出（新页从顶部进）/ prev=向下推出 */
+const swipeDir = ref<'next' | 'prev'>('next')
+
+let swipeStartY = 0
+let swipeAxis: 'none' | 'pending' | 'y' = 'none'
+
+function currentSwipeIndex(): number {
+  return SWIPE_ORDER.findIndex((v) => v.name === router.currentRoute.value.name)
+}
+
+/** 是否处于可划屏主视图（详情页等不在序列内 → 不触发） */
+function isSwipeable(): boolean {
+  return currentSwipeIndex() >= 0
+}
+
+/** 切到指定索引序号的主视图（自动 clamp 到边界，键盘/拖拽共用） */
+function swipeToIndex(next: number) {
+  const n = Math.max(0, Math.min(SWIPE_ORDER.length - 1, next))
+  const cur = currentSwipeIndex()
+  if (n === cur) return
+  swipeDir.value = n > cur ? 'next' : 'prev'
+  swiping.value = false
+  swipeY.value = 0
+  void router.push(SWIPE_ORDER[n].path)
+}
+
+function onSwipePointerDown(e: PointerEvent) {
+  if (!isSwipeable() || e.button !== 0) return
+  const t = e.target as HTMLElement | null
+  if (!t) return
+  // 避开可交互元素（按钮/链接/输入/表格/画布/编辑态/下拉/状态列…），避免划屏误触发
+  if (
+    t.closest(
+      'button, a, input, textarea, select, [contenteditable], .widget-card, .widget-canvas, .gallery-overlay, .gallery-panel, .brand-trigger, .run-status, [role="dialog"]',
+    )
+  )
+    return
+  swipeStartY = e.clientY
+  swipeAxis = 'pending'
+  window.addEventListener('pointermove', onSwipePointerMove)
+  window.addEventListener('pointerup', onSwipePointerUp)
+}
+
+function onSwipePointerMove(e: PointerEvent) {
+  if (swipeAxis === 'none') return
+  const dy = e.clientY - swipeStartY
+  if (swipeAxis === 'pending') {
+    if (Math.abs(dy) <= 6) return
+    swipeAxis = 'y'
+    swiping.value = true
+  }
+  if (swipeAxis !== 'y') return
+  e.preventDefault()
+  const h = swipeHost.value?.clientHeight || window.innerHeight
+  // 跟手位移（带阻尼，限制幅度保留回弹感）
+  let amt = dy * 0.85
+  const idx = currentSwipeIndex()
+  // 边界：首页往下拖 / 末页往上拖 —— 没有可切换方向，页面像被顶住不跟手，确保边缘无划屏特效
+  if ((idx <= 0 && dy > 0) || (idx >= SWIPE_ORDER.length - 1 && dy < 0)) amt = 0
+  swipeY.value = Math.max(-h * 0.45, Math.min(h * 0.45, amt))
+}
+
+function onSwipePointerUp(e: PointerEvent) {
+  window.removeEventListener('pointermove', onSwipePointerMove)
+  window.removeEventListener('pointerup', onSwipePointerUp)
+  const dy = e.clientY - (swipeStartY || 0)
+  swipeAxis = 'none'
+  swiping.value = false
+  if (Math.abs(dy) > SWIPE_THRESHOLD) {
+    // 向上拖 → 下一个主视图；向下拖 → 上一个（与用户描述一致）
+    if (dy < 0) swipeToIndex(currentSwipeIndex() + 1)
+    else swipeToIndex(currentSwipeIndex() - 1)
+  } else {
+    swipeY.value = 0 // 未超阈值弹回
+  }
+}
+
+function onSwipeKey(e: KeyboardEvent) {
+  if (!isSwipeable()) return
+  // 排除在输入框/下拉等场景误触
+  const t = e.target as HTMLElement | null
+  if (t && t.closest('input, textarea, select, [contenteditable]')) return
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    swipeToIndex(currentSwipeIndex() + 1) // 上 → 下一个
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    swipeToIndex(currentSwipeIndex() - 1) // 下 → 上一个
+  }
+}
+
 /** 运行中实例列表（供底部状态列展示名字 + pid + 状态）。 */
 const runningList = computed(() =>
   Object.entries(instances.running).map(([id, pid]) => {
@@ -54,6 +229,20 @@ onMounted(() => {
   instances.fetchInstances()
   instances.refreshLaunchStatus()
   instances.initLaunchEvents()
+  // 账号数据在应用启动时即加载：先拉列表，再对微软账号做静默有效性检测（后台并行）。
+  // 这样进账号页只读已就绪的 store，不再每个账号触发网络往返，彻底消除进页卡顿。
+  void accounts.fetchAccounts().then(() => {
+    for (const acc of accounts.microsoftAccounts) void accounts.check(acc.id)
+  })
+  // 苹果划屏：内容区竖直拖拽 + 键盘↑↓
+  swipeHost.value?.addEventListener('pointerdown', onSwipePointerDown)
+  window.addEventListener('keydown', onSwipeKey, true)
+})
+onUnmounted(() => {
+  swipeHost.value?.removeEventListener('pointerdown', onSwipePointerDown)
+  window.removeEventListener('keydown', onSwipeKey, true)
+  window.removeEventListener('pointermove', onSwipePointerMove)
+  window.removeEventListener('pointerup', onSwipePointerUp)
 })
 
 // M9-6：ui manifest 变化（插件启用/禁用后 refresh）时，同步动态插件路由。
@@ -74,31 +263,51 @@ watch(
 
   <!-- 外框包裹壳：四周深紫圆角边框，顶部宽 52px -->
   <div class="app-shell">
-    <!-- 顶部边框内的品牌 + 悬停下拉（仿 caelestia）：鼠标移到 MikoLauncher 弹出白色圆角悬浮菜单，含全部导航项 -->
+    <!-- 顶部边框内的品牌 + 分组导航下拉（Minecraft.net 官方页式：左侧主类别四选 + 竖分隔线 + 右侧内容） -->
     <div class="brand-bar">
-      <div class="brand-trigger">
+      <div class="brand-trigger" @mouseenter="menuOpen = true" @mouseleave="menuOpen = false">
         <span class="brand-text">MikoLauncher</span>
-        <!-- 悬停下拉（仿 caelestia 组件）：加宽面板，导航项单列纵排，图标+文字左对齐 -->
-        <div class="brand-panel">
+        <!-- 品牌下拉：跟随 hover —— 鼠标移入顶栏 brand（含面板）展开，移出即收起。点击选项不影响展开态 -->
+        <div class="brand-panel" :class="{ open: menuOpen }">
           <nav class="panel-box drawer">
-            <template v-for="v in uiStore.views" :key="v.key">
-              <router-link :to="v.path" class="nav-item">
-                <svg class="item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="viewIcon(v.key)" /></svg>
-                <span>{{ v.label }}</span>
-              </router-link>
-              <!-- 编辑：独立一格，紧跟「主页」正下方（M10-2；切主页编辑态） -->
+            <!-- Minecraft.net 官方页式：左侧主类别四选 → 竖分隔线 → 右侧显示选中类别的内容 -->
+            <div class="drawer-side">
               <button
-                v-if="v.key === 'home'"
+                v-for="t in navTabs"
+                :key="'tab-' + t.title"
                 type="button"
-                class="nav-item nav-edit-row"
-                :class="{ active: home.editing }"
-                :title="home.editing ? '退出主页编辑' : '编辑首页小组件'"
-                @click.stop.prevent="editHome()"
+                class="side-item"
+                :class="{ active: t.title === activeNav }"
+                @click="activeNav = t.title"
               >
-                <svg class="item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3" /></svg>
-                <span>{{ home.editing ? '完成' : '编辑' }}</span>
+                <svg class="side-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="viewIcon(t.iconKey)" /></svg>
+                <span class="side-label">{{ t.title }}</span>
               </button>
-            </template>
+            </div>
+            <div class="drawer-divider" aria-hidden="true"></div>
+            <div class="drawer-main">
+              <div v-if="currentGroup" class="nav-group" :class="'variant-' + currentGroup.variant">
+                <div class="nav-group-grid">
+                  <template v-for="(item, i) in currentGroup.items" :key="'gi-' + currentGroup.title + '-' + i">
+                    <router-link v-if="item.kind === 'link'" :to="item.path" class="nav-tile">
+                      <svg class="tile-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="viewIcon(item.key)" /></svg>
+                      <span class="tile-label">{{ item.label }}</span>
+                    </router-link>
+                    <button
+                      v-else
+                      type="button"
+                      class="nav-tile nav-tile-edit"
+                      :class="{ active: home.editing }"
+                      :title="home.editing ? '退出主页编辑' : '编辑首页小组件'"
+                      @click.stop.prevent="editHome()"
+                    >
+                      <svg class="tile-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3" /></svg>
+                      <span class="tile-label">{{ home.editing ? '完成' : '编辑' }}</span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
           </nav>
         </div>
       </div>
@@ -107,8 +316,19 @@ watch(
     <main class="app-main-rim">
       <!-- 小组件面板已移入首页 HomeView（M10-2 起只挂在首页路由，编辑/添加/调大小也在首页）。
            页脚通用布局 slot 仍是全局注入点。 -->
-      <div class="app-main">
-        <router-view />
+      <div class="app-main" ref="swipeHost">
+        <!-- 苹果划屏：内容区竖直拖拽/键盘↑↓ 切换主视图；router-view 用 V 方向推入推向动画 -->
+        <router-view v-slot="{ Component }">
+          <transition :name="swipeDir === 'next' ? 'swipe-next' : 'swipe-prev'" mode="out-in">
+            <div
+              class="page-swipe-sheet"
+              :class="{ dragging: swiping }"
+              :style="swiping || swipeY !== 0 ? { transform: `translateY(${swipeY}px)` } : null"
+            >
+              <component :is="Component" />
+            </div>
+          </transition>
+        </router-view>
       </div>
 
       <!-- M11-3：游戏运行状态列（下方圆角长条视窗）：显示正在运行的实例 + 状态 -->
@@ -143,10 +363,13 @@ watch(
   /* 深紫边框 = 壳整片深紫背景 + border-radius 裁四角。
      transform:translateZ(0) 强制 WebKit 合成层，规避全视口元素 border-radius 不裁角的坑；
      overflow:hidden 让内层内容也被裁进圆角矩形。 */
-  background: var(--shell-bg, #77636c);
+  background: color-mix(in srgb, var(--shell-bg, #77636c) 96%, transparent);
   border-radius: var(--shell-radius, 18px);
   transform: translateZ(0);
   overflow: hidden;
+  /* 边框毛玻璃：半透明深紫透出桌面 + 轻微模糊，让边框有通透质感（透明窗已开启） */
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
   color: var(--text, #3a3436);
   font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
@@ -212,8 +435,7 @@ watch(
   transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
   pointer-events: none; /* 面板非 hover 时不允许穿透 hover 区 */
 }
-.brand-trigger:hover .brand-panel,
-.brand-trigger:focus-within .brand-panel {
+.brand-panel.open {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(0);
@@ -232,58 +454,153 @@ watch(
 }
 .panel-box.drawer {
   position: relative;
-  width: 240px; /* 加宽的下拉组件（单列纵排） */
-  padding: 8px;
-  background: var(--shell-bg, #77636c); /* 与顶栏同深紫 */
+  width: 340px; /* 加宽的下拉组件（左侧选项栏 + 竖分隔线 + 右侧内容区） */
+  padding: 12px 16px 16px;
+  background: color-mix(in srgb, var(--shell-bg, #77636c) 96%, transparent); /* 与边框同半透明深紫 */
   color: var(--header-text, #f5f1f3);
   border-radius: 0 0 var(--drop-radius, 14px) var(--drop-radius, 14px); /* 上边两角不圆贴顶栏，下两角圆角度形 */
   box-shadow: 0 12px 28px rgba(40, 30, 35, 0.3);
   display: flex;
-  flex-direction: column; /* 单列纵排：每项一行；M10-3 「编辑」紧跟主页下方 */
-  gap: 2px;
+  flex-direction: row;
+  align-items: stretch;
+  /* 与边框一致的毛玻璃：半透明深紫 + 轻微模糊（透出桌面，悬浮亚克力） */
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
 }
 
-/* 抽屉/下拉内导航项：圆角方块，图标+文字左对齐 */
-.nav-item {
+/* ---- 左栏：主类别四选（Minecraft.net 官方页式） ---- */
+.drawer-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 92px;
+  flex-shrink: 0;
+}
+.side-item {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 9px;
-  padding: 0.5rem 0.8rem;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
   border-radius: 9px;
-  color: var(--text, #3a3436);
-  text-decoration: none;
-  font-size: 0.9rem;
-  transition: background 0.12s ease, color 0.12s ease;
-  white-space: nowrap;
+  background: transparent;
+  color: var(--header-text, #f5f1f3);
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1;
+  cursor: pointer;
   text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-/* 编辑行是 <button>：清掉 button 默认样式以免和 nav-item 冲突 */
-button.nav-item {
+.side-icon { flex-shrink: 0; opacity: 0.88; }
+.side-item:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.side-item.active {
+  background: #fff;
+  color: var(--shell-bg, #77636c);
+  font-weight: 650;
+}
+
+/* 竖分隔线：贯穿左右两栏的浅色粗线 */
+.drawer-divider {
+  width: 1.5px;
+  flex-shrink: 0;
+  margin: 2px 14px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.30);
+}
+
+/* 右栏：选中类别的内容区 */
+.drawer-main { flex: 1; min-width: 0; }
+
+/* ---- Minecraft megamenu 式下拉分组：类别 + 多样形态（home 大磁贴 / list 列表条 / card 整行大色块） ---- */
+.nav-group { margin-bottom: 12px; }
+.nav-group:last-child { margin-bottom: 0; }
+.nav-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--header-text, #f5f1f3);
+  opacity: 0.62;
+  margin: 0 4px 6px;
+  user-select: none;
+}
+
+/* 磁贴基础（深紫底浅色字，hover 白半透明底，active 反色）；形态差异由父级 variant 决定 */
+.nav-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 10px;
+  color: var(--header-text, #f5f1f3);
+  text-decoration: none;
+  font-size: 0.85rem;
+  line-height: 1.15;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+button.nav-tile {
   border: none;
   background: transparent;
   font-family: inherit;
   cursor: pointer;
-  width: 100%;
 }
-.item-icon {
+.tile-icon {
   flex-shrink: 0;
+  opacity: 0.92;
 }
-
-
-/* 抽屉内导航项：深紫底上用浅色文字 */
-.panel-box.drawer .nav-item {
-  color: var(--header-text, #f5f1f3);
-}
-.panel-box.drawer .nav-item:hover {
+.nav-tile:hover {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
 }
-.panel-box.drawer .nav-item.router-link-active {
+.nav-tile.router-link-active,
+.nav-tile.active {
   background: #fff;
   color: var(--shell-bg, #77636c);
   font-weight: 600;
 }
+
+/* 首页：2 列大磁贴（图标上/文字下） */
+.variant-home .nav-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.variant-home .nav-tile {
+  flex-direction: column;
+  padding: 16px 6px 13px;
+  font-weight: 550;
+}
+.variant-home .tile-icon { width: 26px; height: 26px; }
+
+/* 资源：单列紧凑列表条（图标左/文字右，竖排） */
+.variant-list .nav-group-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.variant-list .nav-tile {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  text-align: left;
+}
+.variant-list .tile-icon { width: 20px; height: 20px; }
+
+/* 账户/插件：单列整行大色块（图标居中大/文字下） */
+.variant-card .nav-group-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.variant-card .nav-tile {
+  flex-direction: column;
+  padding: 18px 10px 15px;
+  font-weight: 550;
+}
+.variant-card .tile-icon { width: 28px; height: 28px; }
 
 /* ---- 内容区：浅粉面板，四周缩进露出深紫边框（顶 52px、左右/底 8px），自身圆角（局部元素 border-radius 可靠） ---- */
 .app-main-rim {
@@ -291,14 +608,58 @@ button.nav-item {
   display: flex;
   flex-direction: column;
   margin: 52px var(--rim-width, 8px) var(--rim-width, 8px) var(--rim-width, 8px);
-  background: var(--bg, #b6abb0);
+  background: color-mix(in srgb, var(--bg, #b6abb0) 74%, transparent);
   border-radius: var(--shell-radius, 18px);
   overflow: hidden;
+  /* 内部毛玻璃：浅粉主体半透明 + 模糊，透出（被模糊的）桌面/边框，呈亚克力质感 */
+  backdrop-filter: blur(40px) saturate(150%);
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+  /* 深紫边框与内部浅粉主体之间的柔和内阴影：细内描边带出内缘厚度 + 大半径光晕向主体渐隐。
+     颜色取自 --shell-bg 半透明，随主题换肤自动跟随；下层 @supports 给出极旧 WebKit 的兜底。 */
+  box-shadow: inset 0 0 0 1.5px rgba(40, 30, 35, 0.16), inset 0 0 32px 18px color-mix(in srgb, var(--shell-bg, #77636c) 56%, transparent);
+}
+@supports not (color: color-mix(in srgb, red, transparent)) {
+  .app-main-rim { box-shadow: inset 0 0 0 1.5px rgba(40, 30, 35, 0.16), inset 0 0 32px 18px rgba(40, 30, 35, 0.30); }
+}
+/* 不支持 backdrop-filter 的极旧内核：半透明背景若无模糊会直接透出桌面（难看且不可读），退回实色 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-shell { background: var(--shell-bg, #77636c); }
+  .app-main-rim { background: var(--bg, #b6abb0); }
+  .panel-box.drawer { background: var(--shell-bg, #77636c); }
 }
 .app-main {
   flex: 1;
   overflow: auto;
   padding: 1.2rem 1.4rem;
+}
+
+/* ---- 苹果划屏（整页推卡）：页容器 transform 跟手 + router-view 上下滑动 ---- */
+.page-swipe-sheet {
+  min-height: 100%;
+  transition: transform 0.25s cubic-bezier(0.22, 0.8, 0.28, 1);
+}
+.page-swipe-sheet.dragging {
+  transition: none; /* 跟手瞬时，不做过渡 */
+}
+.page-swipe-sheet.dragging,
+.page-swipe-sheet.dragging * {
+  user-select: none; /* 划屏中关掉文本选择/拖拽 */
+}
+/* 切页：新页/旧页整页上下推入推出（next=向上推出，prev=向下推出）
+   注：Vue transition 运行时动态加的 class 不带 scoped data 属性，须 :global() 才能命中。 */
+:global(.swipe-next-enter-active),
+:global(.swipe-next-leave-active),
+:global(.swipe-prev-enter-active),
+:global(.swipe-prev-leave-active) {
+  transition: transform 0.34s cubic-bezier(0.22, 0.8, 0.28, 1);
+}
+:global(.swipe-next-enter-from),
+:global(.swipe-next-leave-to) {
+  transform: translateY(-100%);
+}
+:global(.swipe-prev-enter-from),
+:global(.swipe-prev-leave-to) {
+  transform: translateY(100%);
 }
 
 /* 页脚布局插件的 slot 容器（样式由插件自己的 class 提供，这里仅留基础间隔） */
@@ -325,19 +686,4 @@ button.nav-item {
 .run-dot.launched { background: #39c5bb; }
 .run-name { font-weight: 600; color: var(--text, #3a3436); }
 .run-state { color: var(--text-dim, #8b8490); margin-left: auto; }
-
-/* ---- 下拉「编辑」行（独立一格，紧跟主页下方；M10-2）----
-   编辑行复用 .nav-item 布局；编辑态 active 反色（白底深紫字）高亮。 */
-.panel-box.drawer .nav-item.nav-edit-row {
-  margin-top: 2px;
-}
-.panel-box.drawer .nav-item.nav-edit-row:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-.panel-box.drawer .nav-item.nav-edit-row.active {
-  background: #fff;
-  color: var(--shell-bg, #77636c);
-  font-weight: 650;
-}
 </style>

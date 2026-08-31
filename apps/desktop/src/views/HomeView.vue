@@ -13,7 +13,7 @@
  *   - 左上「−」移除、右上「＋」放大一档、底部「←/→」调顺序
  *   - 顶部横条：「添加小组件 +」/「重置面板」/「完成」
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUiStore } from '../stores/ui'
 import {
   useHomeStore,
@@ -134,18 +134,34 @@ function resetPanelToDefault() {
   home.resetLayout()
 }
 
+/** 确保 RO 已挂到画布：canvas 可能因 manifest/插件异步加载而延迟挂载，必须等画布真正出现后再量宽 + observe。
+  * 否则 RO 在画布尚为 null 时一次性 observe 落空 → containerW 停在 DESIGN_W（scale 恒 1）→ 重开/冷启动缩放失效。 */
+function ensureResizeObserver() {
+  void nextTick(() => {
+    if (!canvasEl.value) return
+    containerW.value = canvasEl.value.clientWidth || containerW.value
+    if (!ro) {
+      ro = new ResizeObserver((entries) => {
+        const entry = entries[0]
+        const w = entry?.contentRect?.width ?? canvasEl.value?.clientWidth ?? containerW.value
+        if (w > 0) containerW.value = w
+      })
+    }
+    ro.observe(canvasEl.value)
+  })
+}
+
 onMounted(() => {
   if (!uiStore.manifest) uiStore.refresh()
-  // 先行量一次再挂 RO，避免初次不触发导致 containerW 停在初始 DESIGN_W（scale 恒 1）→ 窗口缩放失效
-  if (canvasEl.value) containerW.value = canvasEl.value.clientWidth
-  ro = new ResizeObserver((entries) => {
-    const entry = entries[0]
-    const w = entry?.contentRect?.width ?? canvasEl.value?.clientWidth ?? containerW.value
-    if (w > 0) containerW.value = w
-  })
-  if (canvasEl.value) ro.observe(canvasEl.value)
+  ensureResizeObserver()
 })
 onUnmounted(() => ro?.disconnect())
+
+// 画布随小组件出现/插件启停而挂载变化：每次数量变化后重新确保 RO 挂上（observe 同元素幂等）。
+watch(
+  () => home.panelWidgets.length,
+  () => ensureResizeObserver(),
+)
 
 watch(
   () => home.editing,

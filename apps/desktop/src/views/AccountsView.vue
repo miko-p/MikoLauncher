@@ -54,17 +54,8 @@ async function setupDeviceCode() {
 
 onMounted(() => {
   setupDeviceCode()
-  store.fetchAccounts().then(async () => {
-    // M9-2：挂载时对各微软账号做一次静默刷新检测，前端自动暴露失效重登入口
-    for (const acc of store.microsoftAccounts) {
-      checkingId.value = acc.id
-      try {
-        await store.check(acc.id)
-      } finally {
-        checkingId.value = null
-      }
-    }
-  })
+  // 账号数据已由应用启动时全局加载（App.vue 启动即 fetchAccounts + 微软账号后台有效性检测）。
+  // 进账号页不再触发任何网络请求（列表面临启动态），彻底消除进页卡顿；需要刷新可点页面「刷新」按钮。
 })
 onUnmounted(() => unlisten?.())
 </script>

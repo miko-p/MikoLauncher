@@ -4,6 +4,13 @@
 
 ## [未发布]
 
+### M15 已添加
+- **修复「主页面板重开/冷启动后缩放失效」**：根因是 `HomeView` 的 `onMounted` 里一次性的 `ResizeObserver` observe 落空——manifest 经异步 IPC 拉回前 `canvasEl` 为 null（画布 `v-if` 依赖小组件），等画布延迟挂载后 RO 早已错过，`containerW` 停在 `DESIGN_W`（scale 恒 1），小窗口重开缩放无效。改为 `ensureResizeObserver()`：`nextTick` 等 DOM 更新后再量宽 + observe（observe 幂等），`onMounted` 调一次覆盖「画布立即可见」，再加 `watch(panelWidgets.length)` 覆盖「manifest/插件异步导致画布延迟挂载」的冷启动场景，两条互补彻底修复。
+- **应用边框改半透明毛玻璃（亚克力风）**：深紫边框与内部浅粉主体改为 `color-mix` 半透明 + `backdrop-filter` 模糊（边框 90% + 30px、主体 74% + 40px，模糊强度可调），边框内缘加了「细内描边 + 大半径光晕」的 inset 阴影增强厚度感；颜色取自 `--shell-bg`/`--bg` 随主题换肤自动跟随；极旧 WebKit 用 `@supports` 兜底回退实色。下拉抽屉同风格对齐（96% + 30px）。
+- **下拉导航改 Minecraft.net 官方页式分组**：顶栏悬停下拉从「单列纵排」改为「左侧主类别四选（首页/资源/账号/插件）＋ 竖分隔线 ＋ 右侧显示选中类别内容」——选首页显示主页/编辑、选资源显示下载/实例（左右并排大磁贴）、账户/插件用整行大色块；主页与编辑归入同一「首页」类别；交互改纯 hover 跟随（移入展开、移出即收）。
+- **苹果划屏整页切换**：内容区按住鼠标竖直拖拽即整页跟手平移，松手超阈值滑走切换主视图（顺序：首页→下载→实例→账号→插件；向上前进、向下返回）；键盘 ↑↓ 同效；详情页不在序列内不触发；可交互元素（按钮/输入/小组件卡片等）自动避开，避免误触；首个/末个页面在边界方向不跟手、无越界特效。
+- **修复「进账号页卡顿」**：账号的「拉列表 + 对每个微软账号做有效性检测」原在 `AccountsView.onMounted` 串行 await（每个都走 Rust 网络 refresh）→ 改为应用启动时全局加载（App.vue `onMounted` 一次 fetchAccounts + 微软账号后台并行 check），进账号页不再触发任何网络请求、直接读共享 store，彻底消除进页卡顿。
+
 ### M14 已添加
 - **实例图标跟随模组包图标**：从 Modrinth 模组包创建实例后，把模组包远程图标下载并转为 data-URI 存进实例 `icon`（新增 Rust `modrinth_download_icon` command 走共享 `HTTP_CLIENT` + base64，前端 CSP 未放行 cdn 故下载放后端）；`instanceStore` 加惰性补齐 `backfillModpackIcons` —— 每次拉列表对「icon 空且 modpack.iconUrl 存在」的实例自动补，存量实例也生效。自定义建实例无该来源，仍用默认占位。
 - **Modrinth 项目独立详情页**：新增路由 `/modrinth/:slug` + `views/ModrinthDetailView.vue` —— 展示图标/标题/简介/统计/支持版本，并复用下载页流程选 MC 版本 + 加载器创建实例（模组包绑定 modpack）。供各小组件/下载按钮「直达模组详情」。
