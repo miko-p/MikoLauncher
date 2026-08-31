@@ -129,7 +129,7 @@ MikoLauncher/
 │  └─ shared/             # Rust↔TS 共享 Zod 契约（Single Source of Truth）
 ├─ plugins/               # 用户插件装载目录（Phase 0，含示例 demo-greeter / demo-theme / demo-layout）
 ├─ poc/                   # 早期概念验证脚本
-└─ docs/                  # 各里程碑 M1-M13 交付/验证/踩坑
+└─ docs/                  # 各里程碑 M1-M15 交付/验证/踩坑
 ```
 
 ---
